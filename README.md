@@ -272,19 +272,7 @@ on an externally hosted helper script.
 
 - 21025 TCP/UDP — game + query
 - 21026 TCP/UDP — RCON
-
-## Installing as a custom AMP repository
-
-1. Put the template files in a Git repository root.
-2. Rename `manifest.example.json` to `manifest.json`.
-3. Edit its author/origin/URL fields.
-4. Add the repository under:
-   `ADS -> Configuration -> Instance Deployment -> Configuration Repositories`
-5. Fetch/refresh the repository.
-6. Create or update the OpenStarbound instance.
-7. Run **Update** at least once.
-8. Put non-Workshop mods in `server/localmods/` and configure the new Mod settings.
-
+- 
 ## Attribution
 
 The base configuration is derived from `CubeCoders/AMPTemplates` and retains the
