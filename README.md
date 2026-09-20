@@ -30,10 +30,11 @@ directory before copying Starbound's required `packed.pak`.
 
 For an existing instance that hit this error:
 
-1. In ADS, fetch the latest version of this configuration repository.
-2. Refresh/restart the AMP instance if it still shows the older template revision.
-3. Run **Update** again.
-4. The repair stage is safe to rerun and also handles an already-normalized layout.
+1. In ADS, go to **Configuration -> Instance Deployment -> Configuration Repositories** and click **Fetch Latest**.
+2. Return to the ADS instance list, right-click the existing OpenStarbound Enhanced instance, and choose **Refresh Configuration**.
+3. Manage the instance and run **Update** again.
+4. Confirm the update log now says **Install packed.pak** rather than the obsolete **packed.pak Asset Copy** stage.
+5. The repair stages are safe to rerun and also handle an already-normalized layout.
 
 
 ### v4.2 packed.pak / SteamCMD repair
