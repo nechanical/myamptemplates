@@ -9,7 +9,7 @@ Custom CubeCoders AMP Generic-module templates maintained in this repository.
 
 ---
 
-## OpenStarbound AMP Template — Expanded Server + Unified Mod Manager (v4.1)
+## OpenStarbound AMP Template — Expanded Server + Unified Mod Manager (v4.2)
 
 This custom CubeCoders AMP Generic Module template extends OpenStarbound with a unified
 server-side mod workflow for both Steam Workshop and non-Workshop mods.
@@ -34,6 +34,24 @@ For an existing instance that hit this error:
 2. Refresh/restart the AMP instance if it still shows the older template revision.
 3. Run **Update** again.
 4. The repair stage is safe to rerun and also handles an already-normalized layout.
+
+
+### v4.2 packed.pak / SteamCMD repair
+
+The Starbound dependency stage now mirrors AMP's stock Starbound template by passing
+`UpdateSourceArgs: 211820` as well as `UpdateSourceData: 211820`.
+
+The old generic `CopyFilePath` stage for `packed.pak` has also been replaced with
+platform-specific validated copy commands. Those commands:
+
+- verify `{{$FullRootDir}}211820/assets/packed.pak` exists;
+- create the OpenStarbound `assets` directory themselves;
+- copy `packed.pak` into the OpenStarbound server;
+- verify the destination exists afterward; and
+- report the missing **source** path explicitly when SteamCMD did not download Starbound.
+
+This makes the error distinguishable from a broken OpenStarbound destination layout.
+
 
 ## What v3 adds
 
