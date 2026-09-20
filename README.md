@@ -9,7 +9,7 @@ Custom CubeCoders AMP Generic-module templates maintained in this repository.
 
 ---
 
-## OpenStarbound AMP Template — Expanded Server + Unified Mod Manager (v4.2)
+## OpenStarbound AMP Template — Expanded Server + Unified Mod Manager (v4.3)
 
 This custom CubeCoders AMP Generic Module template extends OpenStarbound with a unified
 server-side mod workflow for both Steam Workshop and non-Workshop mods.
@@ -36,6 +36,17 @@ For an existing instance that hit this error:
 4. Confirm the update log now says **Install packed.pak** rather than the obsolete **packed.pak Asset Copy** stage.
 5. The repair stages are safe to rerun and also handle an already-normalized layout.
 
+
+
+### v4.3 default-config 404 repair
+
+The initial server config no longer uses the external
+`https://cdn-repo.c7rs.com/AMPTemplates/openstarbound_server.cfg` fetch, which can
+return HTTP 404.
+
+The template now embeds its own `starbound_server.config` and creates it only when
+`storage/starbound_server.config` does not already exist. Existing server
+configuration is preserved on Update.
 
 ### v4.2 packed.pak / SteamCMD repair
 
