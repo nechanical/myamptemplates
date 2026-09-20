@@ -12,6 +12,14 @@
         "SkipOnFailure": false
     },
     {
+        "UpdateStageName": "Normalize Windows Release Layout",
+        "UpdateSourcePlatform": "Windows",
+        "UpdateSource": "Executable",
+        "UpdateSourceData": "powershell.exe",
+        "UpdateSourceArgs": "-NoProfile -ExecutionPolicy Bypass -Command \"$base='{{$FullBaseDir}}'; $nested=Join-Path $base 'server_distribution'; if (Test-Path -LiteralPath $nested) { Copy-Item -Path (Join-Path $nested '*') -Destination $base -Recurse -Force; Remove-Item -LiteralPath $nested -Recurse -Force }; $assets=Join-Path $base 'assets'; New-Item -ItemType Directory -Force -Path $assets | Out-Null; $exe=Join-Path $base 'win\\starbound_server.exe'; if (-not (Test-Path -LiteralPath $exe)) { throw ('OpenStarbound Windows layout normalization did not produce expected server executable: ' + $exe) }\"",
+        "SkipOnFailure": false
+    },
+    {
         "UpdateStageName": "OpenStarbound Download",
         "UpdateSourcePlatform": "Linux",
         "UpdateSource": "GithubRelease",
@@ -36,6 +44,14 @@
         "UpdateSourcePlatform": "All",
         "UpdateSource": "SteamCMD",
         "UpdateSourceData": "211820",
+        "SkipOnFailure": false
+    },
+    {
+        "UpdateStageName": "Assets Directory Creation",
+        "UpdateSourcePlatform": "All",
+        "UpdateSource": "CreateDirectory",
+        "UpdateSourceArgs": "{{$FullBaseDir}}assets",
+        "OverwriteExistingFiles": false,
         "SkipOnFailure": false
     },
     {
