@@ -1,4 +1,15 @@
-# OpenStarbound AMP Template — Expanded Server + Unified Mod Manager (v4)
+# AMP Templates
+
+Custom CubeCoders AMP Generic-module templates maintained in this repository.
+
+## Included templates
+
+- **Garry's Mod Enhanced** — expanded GMod server management with Workshop/client content handling, local resources, mounted Source content, networking, performance, logging/SourceTV, and safe advanced overrides. See [GARRYSMOD-ENHANCED.md](GARRYSMOD-ENHANCED.md).
+- **OpenStarbound** — expanded OpenStarbound server management with unified Workshop/local mod handling and extended server/gameplay controls.
+
+---
+
+## OpenStarbound AMP Template — Expanded Server + Unified Mod Manager (v4)
 
 This custom CubeCoders AMP Generic Module template extends OpenStarbound with a unified
 server-side mod workflow for both Steam Workshop and non-Workshop mods.
