@@ -44,23 +44,23 @@
         "UpdateSourcePlatform": "All",
         "UpdateSource": "SteamCMD",
         "UpdateSourceData": "211820",
+        "SkipOnFailure": false,
+        "UpdateSourceArgs": "211820"
+    },
+    {
+        "UpdateStageName": "Install packed.pak",
+        "UpdateSourcePlatform": "Windows",
+        "UpdateSource": "Executable",
+        "UpdateSourceData": "powershell.exe",
+        "UpdateSourceArgs": "-NoProfile -ExecutionPolicy Bypass -Command \"$src=Join-Path '{{$FullRootDir}}' '211820\\assets\\packed.pak'; $dstDir=Join-Path '{{$FullBaseDir}}' 'assets'; $dst=Join-Path $dstDir 'packed.pak'; if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { throw ('Starbound packed.pak was not downloaded. Expected source: ' + $src + '. Verify AMP Steam credentials own Starbound (App 211820) and rerun Update.') }; New-Item -ItemType Directory -Force -Path $dstDir | Out-Null; Copy-Item -LiteralPath $src -Destination $dst -Force; if (-not (Test-Path -LiteralPath $dst -PathType Leaf)) { throw ('Failed to install packed.pak at destination: ' + $dst) }; Write-Host ('Installed packed.pak: ' + $src + ' -> ' + $dst)\"",
         "SkipOnFailure": false
     },
     {
-        "UpdateStageName": "Assets Directory Creation",
-        "UpdateSourcePlatform": "All",
-        "UpdateSource": "CreateDirectory",
-        "UpdateSourceArgs": "{{$FullBaseDir}}assets",
-        "OverwriteExistingFiles": false,
-        "SkipOnFailure": false
-    },
-    {
-        "UpdateStageName": "packed.pak Asset Copy",
-        "UpdateSourcePlatform": "All",
-        "UpdateSource": "CopyFilePath",
-        "UpdateSourceData": "{{$FullBaseDir}}assets/packed.pak",
-        "UpdateSourceArgs": "{{$FullRootDir}}211820/assets/packed.pak",
-        "OverwriteExistingFiles": true,
+        "UpdateStageName": "Install packed.pak",
+        "UpdateSourcePlatform": "Linux",
+        "UpdateSource": "Executable",
+        "UpdateSourceData": "/bin/bash",
+        "UpdateSourceArgs": "-c \"src='{{$FullRootDir}}211820/assets/packed.pak'; dst_dir='{{$FullBaseDir}}assets'; dst=\\\"$dst_dir/packed.pak\\\"; if [ ! -f \\\"$src\\\" ]; then echo \\\"Starbound packed.pak was not downloaded. Expected source: $src. Verify AMP Steam credentials own Starbound (App 211820) and rerun Update.\\\" >&2; exit 1; fi; mkdir -p \\\"$dst_dir\\\"; cp -f \\\"$src\\\" \\\"$dst\\\"; test -f \\\"$dst\\\" || { echo \\\"Failed to install packed.pak at destination: $dst\\\" >&2; exit 1; }; echo \\\"Installed packed.pak: $src -> $dst\\\"\"",
         "SkipOnFailure": false
     },
     {
