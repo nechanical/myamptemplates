@@ -1,0 +1,29 @@
+[
+    {
+        "ConfigFile": "storage/starbound_server.config",
+        "AutoMap": true,
+        "Importable": true,
+        "ConfigType": "json"
+    },
+    {
+        "ConfigFile": "amp_openstarbound_mods.cfg",
+        "ConfigType": "kvp",
+        "ConfigFormat": "{0}={1}",
+        "Subsections": [
+            {
+                "Heading": "$root",
+                "SettingMappings": {
+                    "ManagedModsEnabled": "ampManagedModsEnabled",
+                    "WorkshopCollectionIDs": "ampWorkshopCollectionIDs",
+                    "LocalModsDirectory": "ampLocalModsDirectory",
+                    "AutoEnableLocalMods": "ampAutoEnableLocalMods",
+                    "ManagedLocalMods": "ampManagedLocalMods",
+                    "DisabledLocalMods": "ampDisabledLocalMods",
+                    "UnifiedModPreference": "ampUnifiedModPreference",
+                    "DownloadMissingWorkshopItems": "ampDownloadMissingWorkshopItems",
+                    "PruneManagedMods": "ampPruneManagedMods"
+                }
+            }
+        ]
+    }
+]

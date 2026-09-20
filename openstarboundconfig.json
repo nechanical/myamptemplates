@@ -1,0 +1,690 @@
+[
+    {
+        "DisplayName": "Game Port",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Networking:lan",
+        "Description": "AMP-managed game port.",
+        "Keywords": "port,network,game",
+        "FieldName": "$ServerPort",
+        "InputType": "number",
+        "ParamFieldName": "$.gameServerPort",
+        "Hidden": true,
+        "DefaultValue": "",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "Game Bind Address",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Networking:lan",
+        "Description": "AMP-managed game bind address.",
+        "Keywords": "bind,address,network",
+        "FieldName": "$ApplicationIPBinding",
+        "InputType": "text",
+        "ParamFieldName": "$.gameServerBind",
+        "Hidden": true,
+        "DefaultValue": "",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "Query Port",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Networking:lan",
+        "Description": "AMP-managed query port. OpenStarbound normally shares the game port.",
+        "Keywords": "query,port,network",
+        "FieldName": "$ServerPort",
+        "InputType": "number",
+        "ParamFieldName": "$.queryServerPort",
+        "Hidden": true,
+        "ExcludeFromImport": true,
+        "DefaultValue": "",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "Query Bind Address",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Networking:lan",
+        "Description": "AMP-managed query bind address.",
+        "Keywords": "query,bind,address",
+        "FieldName": "$ApplicationIPBinding",
+        "InputType": "text",
+        "ParamFieldName": "$.queryServerBind",
+        "Hidden": true,
+        "ExcludeFromImport": true,
+        "DefaultValue": "",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "RCON Port",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Remote Administration:terminal",
+        "Description": "AMP-managed RCON port.",
+        "Keywords": "rcon,port,remote,admin",
+        "FieldName": "$RCONPort",
+        "InputType": "number",
+        "ParamFieldName": "$.rconServerPort",
+        "Hidden": true,
+        "ExcludeFromImport": true,
+        "DefaultValue": "",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "RCON Bind Address",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Remote Administration:terminal",
+        "Description": "AMP-managed RCON bind address.",
+        "Keywords": "rcon,bind,address",
+        "FieldName": "$ApplicationIPBinding",
+        "InputType": "text",
+        "ParamFieldName": "$.rconServerBind",
+        "Hidden": true,
+        "ExcludeFromImport": true,
+        "DefaultValue": "",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "RCON Password",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Remote Administration:terminal",
+        "Description": "Managed by AMP's Security and Privacy settings.",
+        "Keywords": "rcon,password,remote,admin",
+        "FieldName": "$RemoteAdminPassword",
+        "InputType": "hidden",
+        "ParamFieldName": "$.rconServerPassword",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "Server Name",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "General:dns",
+        "Description": "Name advertised by the dedicated server.",
+        "Keywords": "server,name,browser,serverName",
+        "FieldName": "serverName",
+        "InputType": "text",
+        "ParamFieldName": "$.serverName",
+        "DefaultValue": "AMP Powered OpenStarbound Server",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "Player Limit",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "General:dns",
+        "Description": "Maximum number of simultaneously connected players.",
+        "Keywords": "players,max,limit,maxPlayers",
+        "FieldName": "$MaxUsers",
+        "InputType": "number",
+        "ParamFieldName": "$.maxPlayers",
+        "DefaultValue": "8",
+        "MinValue": "1",
+        "Placeholder": "8",
+        "Suffix": "players",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "Server Fidelity",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Performance:speed",
+        "Description": "Controls world simulation fidelity. Automatic lets OpenStarbound scale fidelity dynamically; locking a higher value can increase CPU cost.",
+        "Keywords": "fidelity,simulation,performance,cpu,serverFidelity",
+        "FieldName": "serverFidelity",
+        "InputType": "enum",
+        "ParamFieldName": "$.serverFidelity",
+        "DefaultValue": "automatic",
+        "EnumValues": {
+            "automatic": "Automatic (recommended)",
+            "minimum": "Minimum",
+            "low": "Low",
+            "medium": "Medium",
+            "high": "High"
+        }
+    },
+    {
+        "DisplayName": "Server Tick Rate",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Performance:speed",
+        "Description": "Dedicated-server update rate. OpenStarbound defaults to 60 Hz. The in-game tickrate command clamps values to 5-500 Hz; higher values can sharply increase CPU usage and change timing behavior.",
+        "Keywords": "tick,tickrate,update,rate,performance,cpu,updateRate",
+        "FieldName": "updateRate",
+        "InputType": "number",
+        "ParamFieldName": "$.updateRate",
+        "DefaultValue": "60",
+        "MinValue": "5",
+        "MaxValue": "500",
+        "Placeholder": "60",
+        "Suffix": "Hz",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "Enable Query Server",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Networking:lan",
+        "Description": "Run OpenStarbound's server-query endpoint. AMP keeps the query port synchronized with the game port.",
+        "Keywords": "query,server,browser,network,runQueryServer",
+        "FieldName": "runQueryServer",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.runQueryServer",
+        "ExcludeFromImport": true,
+        "DefaultValue": "true",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Network Compression",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Networking:lan",
+        "Description": "Compression negotiated with modern OpenStarbound clients. Zstd reduces network traffic at some CPU cost; None disables stream compression.",
+        "Keywords": "network,compression,zstd,connectionSettings",
+        "FieldName": "networkCompression",
+        "InputType": "enum",
+        "ParamFieldName": "$.connectionSettings.compression",
+        "DefaultValue": "Zstd",
+        "EnumValues": {
+            "Zstd": "Zstandard (default)",
+            "None": "None"
+        }
+    },
+    {
+        "DisplayName": "Enable RCON Server",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Remote Administration:terminal",
+        "Description": "Run OpenStarbound's Source-style RCON endpoint. Disabling this also prevents AMP's RCON-based remote administration from working.",
+        "Keywords": "rcon,remote,admin,console,runRconServer",
+        "FieldName": "runRconServer",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.runRconServer",
+        "ExcludeFromImport": true,
+        "DefaultValue": "true",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "RCON Socket Timeout",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Remote Administration:terminal",
+        "Description": "Socket timeout used for accepted RCON clients. Upstream default is 1000.",
+        "Keywords": "rcon,timeout,socket,rconServerTimeout",
+        "FieldName": "rconServerTimeout",
+        "InputType": "number",
+        "ParamFieldName": "$.rconServerTimeout",
+        "DefaultValue": "1000",
+        "MinValue": "0",
+        "Placeholder": "1000",
+        "Suffix": "ms",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "Allow Anonymous Connections",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Access & Administration:shield",
+        "Description": "Allow players that are not present in serverUsers to connect without a server account/password.",
+        "Keywords": "anonymous,users,login,allowAnonymousConnections",
+        "FieldName": "allowAnonymousConnections",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.allowAnonymousConnections",
+        "DefaultValue": "true",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Allow Admin Commands",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Access & Administration:shield",
+        "Description": "Allow authenticated/admin players to use administrative commands.",
+        "Keywords": "admin,commands,allowAdminCommands",
+        "FieldName": "allowAdminCommands",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.allowAdminCommands",
+        "DefaultValue": "true",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Allow Admin Commands From Anyone",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Access & Administration:shield",
+        "Description": "DANGEROUS: grant administrative command access to every connected player.",
+        "Keywords": "admin,commands,anyone,unsafe,allowAdminCommandsFromAnyone",
+        "FieldName": "allowAdminCommandsFromAnyone",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.allowAdminCommandsFromAnyone",
+        "DefaultValue": "false",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Anonymous Connections Are Admin",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Access & Administration:shield",
+        "Description": "DANGEROUS: anonymous players are treated as administrators.",
+        "Keywords": "anonymous,admin,unsafe,anonymousConnectionsAreAdmin",
+        "FieldName": "anonymousConnectionsAreAdmin",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.anonymousConnectionsAreAdmin",
+        "DefaultValue": "false",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Banned IPs",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Access & Administration:shield",
+        "Description": "IP addresses that are denied access.",
+        "Keywords": "ban,banned,ip,bannedIPs",
+        "FieldName": "bannedIPs",
+        "InputType": "list",
+        "ParamFieldName": "$.bannedIPs",
+        "DefaultValue": "[]",
+        "Special": "array:text",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "Banned Player UUIDs",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Access & Administration:shield",
+        "Description": "Player UUIDs that are denied access.",
+        "Keywords": "ban,banned,uuid,bannedUuids",
+        "FieldName": "bannedUuids",
+        "InputType": "list",
+        "ParamFieldName": "$.bannedUuids",
+        "DefaultValue": "[]",
+        "Special": "array:text",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "Allow Asset Mismatch",
+        "Category": "OpenStarbound Server:stadia_controller",
+        "Subcategory": "Assets & Compatibility:extension",
+        "Description": "Allow clients whose asset digest does not match the server. This is useful for mixed client-side mods, but strict modpacks may prefer to disable it.",
+        "Keywords": "assets,digest,mismatch,mods,allowAssetsMismatch",
+        "FieldName": "allowAssetsMismatch",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.allowAssetsMismatch",
+        "DefaultValue": "true",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Maximum Team Size",
+        "Category": "OpenStarbound Gameplay:joystick",
+        "Subcategory": "Teams:group",
+        "Description": "Maximum number of players in a team.",
+        "Keywords": "team,size,maxTeamSize",
+        "FieldName": "maxTeamSize",
+        "InputType": "number",
+        "ParamFieldName": "$.maxTeamSize",
+        "DefaultValue": "4",
+        "MinValue": "1",
+        "Placeholder": "4",
+        "Suffix": "players",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "Team Invitation Timeout",
+        "Category": "OpenStarbound Gameplay:joystick",
+        "Subcategory": "Teams:group",
+        "Description": "How long a team invitation remains pending before expiring. OpenStarbound's fallback default is 600 seconds.",
+        "Keywords": "team,invite,invitation,timeout,teamInvitationTimeout",
+        "FieldName": "teamInvitationTimeout",
+        "InputType": "number",
+        "ParamFieldName": "$.teamInvitationTimeout",
+        "DefaultValue": "600",
+        "MinValue": "0",
+        "Placeholder": "600",
+        "Suffix": "seconds",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "Secure Teams",
+        "Category": "OpenStarbound Gameplay:joystick",
+        "Subcategory": "Teams:group",
+        "Description": "Enable OpenStarbound's secure-team validation. Recommended for public servers.",
+        "Keywords": "team,security,secureTeams",
+        "FieldName": "secureTeams",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.security.secureTeams",
+        "DefaultValue": "true",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Secure Warps",
+        "Category": "OpenStarbound Gameplay:joystick",
+        "Subcategory": "World & Warp Security:public",
+        "Description": "Enable server-side validation of warp requests. Recommended for public servers.",
+        "Keywords": "warp,security,secureWarps",
+        "FieldName": "secureWarps",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.security.secureWarps",
+        "DefaultValue": "true",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Disallow Client Custom Worlds",
+        "Category": "OpenStarbound Gameplay:joystick",
+        "Subcategory": "Client-created Worlds:public",
+        "Description": "Reject client-created custom-world requests entirely. Useful for hardened or tightly controlled servers.",
+        "Keywords": "client,custom,world,security,disallowClientCustomWorlds",
+        "FieldName": "disallowClientCustomWorlds",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.disallowClientCustomWorlds",
+        "DefaultValue": "false",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Disallow Client Subworlds",
+        "Category": "OpenStarbound Gameplay:joystick",
+        "Subcategory": "Client-created Worlds:public",
+        "Description": "Reject client subworld requests entirely. This overrides the more permissive subworld settings below.",
+        "Keywords": "client,subworld,security,disallowClientSubWorlds",
+        "FieldName": "disallowClientSubWorlds",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.disallowClientSubWorlds",
+        "DefaultValue": "false",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Allow Client Subworlds On Any World",
+        "Category": "OpenStarbound Gameplay:joystick",
+        "Subcategory": "Client-created Worlds:public",
+        "Description": "Allow a normal client to request subworlds for any world. OpenStarbound currently defaults this to true when the key is absent.",
+        "Keywords": "client,subworld,world,allowClientSubWorldsAllWorlds",
+        "FieldName": "allowClientSubWorldsAllWorlds",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.allowClientSubWorldsAllWorlds",
+        "DefaultValue": "true",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Allow Client Subworlds On Current World",
+        "Category": "OpenStarbound Gameplay:joystick",
+        "Subcategory": "Client-created Worlds:public",
+        "Description": "Allow a client to request a subworld for the world they are currently in. This matters when 'any world' access is disabled.",
+        "Keywords": "client,subworld,current,world,allowClientSubWorldsCurrentWorld",
+        "FieldName": "allowClientSubWorldsCurrentWorld",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.allowClientSubWorldsCurrentWorld",
+        "DefaultValue": "true",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Notify Admins When Worlds Are Created",
+        "Category": "OpenStarbound Gameplay:joystick",
+        "Subcategory": "World Notifications:notifications",
+        "Description": "Send OpenStarbound world-created notifications to admins. The world owner is still notified as appropriate.",
+        "Keywords": "world,create,notification,admin,notifyAdminsOnWorldCreate",
+        "FieldName": "notifyAdminsOnWorldCreate",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.notifyAdminsOnWorldCreate",
+        "DefaultValue": "false",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Notify All Clients When Worlds Are Created",
+        "Category": "OpenStarbound Gameplay:joystick",
+        "Subcategory": "World Notifications:notifications",
+        "Description": "Send compatible clients notifications whenever a world is created. This is broader than the admin-only option.",
+        "Keywords": "world,create,notification,clients,notifyClientsOnWorldCreate",
+        "FieldName": "notifyClientsOnWorldCreate",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.notifyClientsOnWorldCreate",
+        "DefaultValue": "false",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Clear Universe Files On Start",
+        "Category": "OpenStarbound Advanced:settings",
+        "Subcategory": "Persistence & Recovery:save",
+        "Description": "DANGEROUS: when enabled, the dedicated server clears universe data at startup. Do not leave this enabled unless you intentionally want repeated universe resets.",
+        "Keywords": "universe,clear,reset,wipe,clearUniverseFiles",
+        "FieldName": "clearUniverseFiles",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.clearUniverseFiles",
+        "DefaultValue": "false",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Safe Scripts",
+        "Category": "OpenStarbound Advanced:settings",
+        "Subcategory": "Script Runtime:code",
+        "Description": "Create Lua engines in safe mode. Disabling this can expose unsafe scripting capabilities to mods.",
+        "Keywords": "lua,script,safe,security,safeScripts",
+        "FieldName": "safeScripts",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.safeScripts",
+        "DefaultValue": "true",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Script Recursion Limit",
+        "Category": "OpenStarbound Advanced:settings",
+        "Subcategory": "Script Runtime:code",
+        "Description": "Maximum Lua recursion depth.",
+        "Keywords": "lua,script,recursion,limit,scriptRecursionLimit",
+        "FieldName": "scriptRecursionLimit",
+        "InputType": "number",
+        "ParamFieldName": "$.scriptRecursionLimit",
+        "DefaultValue": "100",
+        "MinValue": "1",
+        "Placeholder": "100",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "Script Instruction Limit",
+        "Category": "OpenStarbound Advanced:settings",
+        "Subcategory": "Script Runtime:code",
+        "Description": "Maximum Lua instruction budget before the engine interrupts a script.",
+        "Keywords": "lua,script,instruction,limit,scriptInstructionLimit",
+        "FieldName": "scriptInstructionLimit",
+        "InputType": "number",
+        "ParamFieldName": "$.scriptInstructionLimit",
+        "DefaultValue": "10000000",
+        "MinValue": "1",
+        "Placeholder": "10000000",
+        "Suffix": "instructions",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "Script Instruction Measure Interval",
+        "Category": "OpenStarbound Advanced:settings",
+        "Subcategory": "Script Runtime:code",
+        "Description": "Interval at which Lua instruction usage is measured.",
+        "Keywords": "lua,script,instruction,interval,scriptInstructionMeasureInterval",
+        "FieldName": "scriptInstructionMeasureInterval",
+        "InputType": "number",
+        "ParamFieldName": "$.scriptInstructionMeasureInterval",
+        "DefaultValue": "10000",
+        "MinValue": "1",
+        "Placeholder": "10000",
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "Enable Script Profiling",
+        "Category": "OpenStarbound Advanced:settings",
+        "Subcategory": "Script Runtime:code",
+        "Description": "Enable Lua script profiling. Useful for diagnosing mod performance, with additional runtime overhead.",
+        "Keywords": "lua,script,profiling,performance,scriptProfilingEnabled",
+        "FieldName": "scriptProfilingEnabled",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.scriptProfilingEnabled",
+        "DefaultValue": "false",
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Enable Unified Mod Manager",
+        "Category": "OpenStarbound Mods:extension",
+        "Subcategory": "Sources & Ordering:extension",
+        "Description": "Master switch for AMP-managed Workshop collections and local/private mod staging.",
+        "Keywords": "mods,manager,workshop,local,private",
+        "FieldName": "ampManagedModsEnabled",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.ampManagedModsEnabled",
+        "DefaultValue": "true",
+        "ExcludeFromImport": true,
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Steam Workshop Collection IDs",
+        "Category": "OpenStarbound Mods:extension",
+        "Subcategory": "Sources & Ordering:extension",
+        "Description": "Steam Workshop collection IDs to expand. Individual Workshop item IDs remain managed by AMP under Configuration > Updates > Steam Workshop Items.",
+        "Keywords": "mods,workshop,collection,steam",
+        "FieldName": "ampWorkshopCollectionIDs",
+        "InputType": "list",
+        "ParamFieldName": "$.ampWorkshopCollectionIDs",
+        "DefaultValue": "[]",
+        "ExcludeFromImport": true,
+        "EnumValues": {},
+        "Special": "array:text"
+    },
+    {
+        "DisplayName": "Local Mods Directory",
+        "Category": "OpenStarbound Mods:extension",
+        "Subcategory": "Sources & Ordering:extension",
+        "Description": "Directory relative to the OpenStarbound server directory that stores source copies of non-Workshop mods. Absolute paths and '..' are rejected.",
+        "Keywords": "mods,local,private,directory,path",
+        "FieldName": "ampLocalModsDirectory",
+        "InputType": "text",
+        "ParamFieldName": "$.ampLocalModsDirectory",
+        "DefaultValue": "localmods",
+        "ExcludeFromImport": true,
+        "EnumValues": {}
+    },
+    {
+        "DisplayName": "Auto Enable Local Mods",
+        "Category": "OpenStarbound Mods:extension",
+        "Subcategory": "Sources & Ordering:extension",
+        "Description": "Automatically enable every valid top-level source found in the Local Mods Directory, except entries listed under Disabled Local Mods.",
+        "Keywords": "mods,local,enable,automatic",
+        "FieldName": "ampAutoEnableLocalMods",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.ampAutoEnableLocalMods",
+        "DefaultValue": "true",
+        "ExcludeFromImport": true,
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Managed Local Mods",
+        "Category": "OpenStarbound Mods:extension",
+        "Subcategory": "Sources & Ordering:extension",
+        "Description": "Allowlist of exact local source names to enable when Auto Enable Local Mods is disabled. Use the .pak filename or directory name.",
+        "Keywords": "mods,local,allowlist,enabled",
+        "FieldName": "ampManagedLocalMods",
+        "InputType": "list",
+        "ParamFieldName": "$.ampManagedLocalMods",
+        "DefaultValue": "[]",
+        "ExcludeFromImport": true,
+        "EnumValues": {},
+        "Special": "array:text"
+    },
+    {
+        "DisplayName": "Disabled Local Mods",
+        "Category": "OpenStarbound Mods:extension",
+        "Subcategory": "Sources & Ordering:extension",
+        "Description": "Exact local source names that should remain disabled even when Auto Enable Local Mods is enabled.",
+        "Keywords": "mods,local,disabled,denylist",
+        "FieldName": "ampDisabledLocalMods",
+        "InputType": "list",
+        "ParamFieldName": "$.ampDisabledLocalMods",
+        "DefaultValue": "[]",
+        "ExcludeFromImport": true,
+        "EnumValues": {},
+        "Special": "array:text"
+    },
+    {
+        "DisplayName": "Unified Mod Preference",
+        "Category": "OpenStarbound Mods:extension",
+        "Subcategory": "Sources & Ordering:extension",
+        "Description": "Preferred managed staging order across Workshop and local mods. Use ws:123456789 or local:MyMod.pak. Bare numeric values are Workshop IDs; other bare values are local names. Unlisted managed sources are appended automatically.",
+        "Keywords": "mods,load,order,priority,workshop,local",
+        "FieldName": "ampUnifiedModPreference",
+        "InputType": "list",
+        "ParamFieldName": "$.ampUnifiedModPreference",
+        "DefaultValue": "[]",
+        "ExcludeFromImport": true,
+        "EnumValues": {},
+        "Special": "array:text"
+    },
+    {
+        "DisplayName": "Download Missing Workshop Items",
+        "Category": "OpenStarbound Mods:extension",
+        "Subcategory": "Sources & Ordering:extension",
+        "Description": "If a configured Workshop item is missing locally, try SteamCMD using AMP's cached Steam login. Useful for collection-only items.",
+        "Keywords": "mods,workshop,download,steamcmd,missing",
+        "FieldName": "ampDownloadMissingWorkshopItems",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.ampDownloadMissingWorkshopItems",
+        "DefaultValue": "true",
+        "ExcludeFromImport": true,
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    },
+    {
+        "DisplayName": "Prune Previously Managed Staging",
+        "Category": "OpenStarbound Mods:extension",
+        "Subcategory": "Sources & Ordering:extension",
+        "Description": "Remove old amp_* entries from server/mods before rebuilding. Source files in localmods and manually managed non-amp_* files are never removed.",
+        "Keywords": "mods,prune,cleanup,managed",
+        "FieldName": "ampPruneManagedMods",
+        "InputType": "checkbox",
+        "ParamFieldName": "$.ampPruneManagedMods",
+        "DefaultValue": "true",
+        "ExcludeFromImport": true,
+        "EnumValues": {
+            "True": "true",
+            "False": "false"
+        }
+    }
+]

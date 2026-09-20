@@ -1,0 +1,18 @@
+[
+    {
+        "UpdateStageName": "Synchronize Unified Mods",
+        "UpdateSourcePlatform": "Linux",
+        "UpdateSource": "Executable",
+        "UpdateSourceData": "/bin/bash",
+        "UpdateSourceArgs": "\"{{$FullInstanceDir}}openstarboundmanagemods.sh\" --prestart",
+        "SkipOnFailure": true
+    },
+    {
+        "UpdateStageName": "Synchronize Unified Mods",
+        "UpdateSourcePlatform": "Windows",
+        "UpdateSource": "Executable",
+        "UpdateSourceData": "powershell.exe",
+        "UpdateSourceArgs": "-NoProfile -ExecutionPolicy Bypass -File \"{{$FullInstanceDir}}openstarboundmanagemods.ps1\" -PreStart",
+        "SkipOnFailure": true
+    }
+]
