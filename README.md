@@ -9,10 +9,31 @@ Custom CubeCoders AMP Generic-module templates maintained in this repository.
 
 ---
 
-## OpenStarbound AMP Template — Expanded Server + Unified Mod Manager (v4)
+## OpenStarbound AMP Template — Expanded Server + Unified Mod Manager (v4.1)
 
 This custom CubeCoders AMP Generic Module template extends OpenStarbound with a unified
 server-side mod workflow for both Steam Workshop and non-Workshop mods.
+
+
+## Windows installation/update repair
+
+v4.1 fixes the Windows update failure where AMP could stop at **packed.pak Asset Copy**
+with an error similar to:
+
+`Could not find a part of the path ...\\openstarbound\\server\\assets\\packed.pak`
+
+The current OpenStarbound Windows server ZIP contains a top-level
+`server_distribution` directory. The template now normalizes that archive after
+extraction by moving its contents into AMP's expected server base directory, verifies
+that `win\\starbound_server.exe` exists, and explicitly creates the `assets`
+directory before copying Starbound's required `packed.pak`.
+
+For an existing instance that hit this error:
+
+1. In ADS, fetch the latest version of this configuration repository.
+2. Refresh/restart the AMP instance if it still shows the older template revision.
+3. Run **Update** again.
+4. The repair stage is safe to rerun and also handles an already-normalized layout.
 
 ## What v3 adds
 
@@ -283,7 +304,7 @@ on an externally hosted helper script.
 
 - 21025 TCP/UDP — game + query
 - 21026 TCP/UDP — RCON
-- 
+
 ## Attribution
 
 The base configuration is derived from `CubeCoders/AMPTemplates` and retains the
