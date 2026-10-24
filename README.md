@@ -330,6 +330,15 @@ Human-readable helpers are included as:
 They are also embedded into the AMP update stages, so the custom template does not depend
 on an externally hosted helper script.
 
+### Windows helper regression checks
+
+Run `powershell.exe -NoProfile -File tests/openstarboundmanagemods.Tests.ps1` on Windows,
+or `pwsh -NoProfile -File tests/openstarboundmanagemods.Tests.ps1` with PowerShell 7.
+The dependency-free checks parse both Windows helper copies, verify that the embedded
+Base64 payload matches the standalone script byte-for-byte, and exercise `Get-KvpValue`
+against temporary config files. They do not execute the full helper, download mods,
+or touch an AMP installation. Full Windows/AMP integration still needs separate testing.
+
 ## Ports
 
 - 21025 TCP/UDP — game + query

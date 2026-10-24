@@ -23,9 +23,9 @@ New-Item -ItemType Directory -Force -Path $StorageDir | Out-Null
 function Get-KvpValue([string]$Path, [string]$Key) {
     if (-not (Test-Path -LiteralPath $Path)) { return "" }
     $escaped = [regex]::Escape($Key)
-    $matches = Get-Content -LiteralPath $Path | Where-Object { $_ -match "^\s*$escaped\s*=" }
-    if (-not $matches) { return "" }
-    return (($matches[-1] -split "=", 2)[1]).Trim()
+    $matchingLines = @(Get-Content -LiteralPath $Path | Where-Object { $_ -match "^\s*$escaped\s*=" })
+    if ($matchingLines.Count -eq 0) { return "" }
+    return (($matchingLines[-1] -split "=", 2)[1]).Trim()
 }
 
 function Get-ListValues([string]$Raw) {
@@ -125,7 +125,7 @@ function Resolve-Collection([string]$CollectionId) {
             return $ids
         }
     } catch {
-        Write-ModWarning "Could not refresh collection $CollectionId: $($_.Exception.Message)"
+        Write-ModWarning "Could not refresh collection ${CollectionId}: $($_.Exception.Message)"
     }
 
     if (Test-Path -LiteralPath $cache) {
@@ -186,7 +186,7 @@ function Download-Item([string]$Id) {
         & $steamcmd "+login" "+workshop_download_item" $SteamAppId $Id "validate" "+quit"
         return ($LASTEXITCODE -eq 0)
     } catch {
-        Write-ModWarning "SteamCMD could not download Workshop item $Id: $($_.Exception.Message)"
+        Write-ModWarning "SteamCMD could not download Workshop item ${Id}: $($_.Exception.Message)"
         return $false
     }
 }
