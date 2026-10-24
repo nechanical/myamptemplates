@@ -1,116 +1,58 @@
-# OpenStarbound AMP Template — Expanded Server + Unified Mod Manager (v4)
+# OpenStarbound Enhanced for AMP
 
-This custom CubeCoders AMP Generic Module template extends OpenStarbound with a unified
-server-side mod workflow for both Steam Workshop and non-Workshop mods.
+A CubeCoders AMP template for running an OpenStarbound dedicated server with more server and
+gameplay settings, plus a mod manager that loads Steam Workshop items, Workshop collections and
+local mods in a single order. It installs alongside AMP's built-in OpenStarbound template
+rather than replacing it.
 
-## What v3 adds
+## Installation
 
-- AMP-native individual Steam Workshop item support.
-- Steam Workshop collection expansion.
-- A persistent local/private mod source directory.
-- Auto-enable or allowlist-based local mod selection.
-- A local mod disable list.
-- One preference list spanning Workshop and local mods.
-- Safe staging that never edits the original local mod source.
-- Pre-start synchronization.
-- A detailed mod report with missing/invalid sources, unmanaged mods and readable
-  local `_metadata` diagnostics.
+1. In ADS, open `Configuration -> Instance Deployment -> Configuration Repositories`.
+2. Add `nechanical/myamptemplates:main` and click **Fetch Latest**, then hard-refresh the web UI
+   if the template doesn't appear.
+3. Click **Create Instance** and choose **OpenStarbound Enhanced** instead of the stock
+   **OpenStarbound** entry.
+4. Run **Update** once before starting the server for the first time.
 
+To host your own copy of the template, see [INSTALL-LOCAL-AMP.md](INSTALL-LOCAL-AMP.md). If you
+are upgrading an instance created from an earlier version, read
+[MIGRATION-v2-to-v3.md](MIGRATION-v2-to-v3.md) and [MIGRATION-v3-to-v4.md](MIGRATION-v3-to-v4.md).
 
-## Expanded server and gameplay controls
+## Ports
 
-v4 reorganizes the AMP configuration page around settings that the current OpenStarbound
-dedicated server actually reads.
+| Port  | Protocol | Use            |
+| ----- | -------- | -------------- |
+| 21025 | TCP/UDP  | Game and query |
+| 21026 | TCP/UDP  | RCON           |
 
-### OpenStarbound Server
+## Server settings
 
-**General**
-- Server Name
-- Player Limit
+Server, gameplay and advanced options are on the instance's Configuration page under
+**OpenStarbound Server**, **OpenStarbound Gameplay** and **OpenStarbound Advanced**. Named
+server accounts (`serverUsers`) aren't available there, so edit them directly in
+`openstarbound/server/storage/starbound_server.config`.
 
-**Performance**
-- Server Fidelity: automatic / minimum / low / medium / high
-- Server Tick Rate: 5-500 Hz in AMP, default 60 Hz
+## Mods
 
-**Networking**
-- AMP-managed game/query ports and bind addresses
-- Enable Query Server
-- Network Compression: Zstd / None
+Mod options live under **Configuration -> OpenStarbound Mods**, and **Enable Unified Mod
+Manager** turns the whole system on or off. The mod manager runs at the end of every Update and
+again just before the server starts, staging each enabled mod into
+`openstarbound/server/mods/` with an `amp_` prefix that sets its load order.
 
-**Remote Administration**
-- Enable RCON Server
-- AMP-managed RCON password and port
-- RCON Socket Timeout
+### Workshop mods
 
-**Access & Administration**
-- Anonymous connections
-- Admin commands
-- Admin commands from anyone
-- Anonymous players as admins
-- Banned IPs
-- Banned player UUIDs
+Add individual items where AMP normally expects them, in
+`Configuration -> Updates -> Steam Workshop Items`. Add whole collections under **Steam
+Workshop Collection IDs**. A collection's contents are cached once resolved, so it still loads
+if Steam's collection service is temporarily down. With **Download Missing Workshop Items**
+enabled, any configured item that isn't on disk yet, which is common for items that only come
+from a collection, is downloaded through SteamCMD using AMP's saved Steam login.
 
-**Assets & Compatibility**
-- Allow Asset Mismatch
+### Local mods
 
-### OpenStarbound Gameplay
-
-**Teams**
-- Maximum Team Size
-- Team Invitation Timeout
-- Secure Teams
-
-**World & Warp Security**
-- Secure Warps
-
-**Client-created Worlds**
-- Disallow Client Custom Worlds
-- Disallow Client Subworlds
-- Allow Client Subworlds On Any World
-- Allow Client Subworlds On Current World
-
-**World Notifications**
-- Notify Admins When Worlds Are Created
-- Notify All Clients When Worlds Are Created
-
-### OpenStarbound Advanced
-
-**Persistence & Recovery**
-- Clear Universe Files On Start
-
-**Script Runtime**
-- Safe Scripts
-- Script Recursion Limit
-- Script Instruction Limit
-- Script Instruction Measure Interval
-- Script Profiling
-
-### Settings intentionally not exposed as normal AMP toggles
-
-The upstream shared configuration contains several client-only preferences. They have been
-removed from the dedicated-server AMP UI: interactive highlighting, monochrome lighting,
-tutorial messages, crafting-menu filters, pickup-to-action-bar, Discord activity, client
-IP/P2P joinability, player-file cleanup, and player backup count.
-
-`serverUsers` is also left to direct JSON editing because it is a structured object rather
-than a scalar/list setting. `serverOverrideAssetsDigest` is left as an expert-only manual
-configuration value because an empty string is not equivalent to its normal JSON `null`
-state and can produce an invalid digest override.
-
-
-## Local / non-Workshop mods
-
-The default source directory is:
-
-`openstarbound/server/localmods/`
-
-Put any of the following at the top level:
-
-- `MyMod.pak`
-- an unpacked mod directory containing `_metadata`
-- a release directory containing one or more `.pak` files (up to two levels deep)
-
-Examples:
+Put private mods, GitHub releases and other non-Workshop mods in
+`openstarbound/server/localmods/`. Each top-level entry can be a `.pak` file, an unpacked mod
+folder containing `_metadata`, or a folder with `.pak` files up to two levels down.
 
 ```text
 server/
@@ -124,38 +66,18 @@ server/
 └── mods/
 ```
 
-This makes downloaded GitHub releases, private mods and hand-installed `.pak` files
-manageable without mixing the source copies with OpenStarbound's live `mods` directory.
+Every local mod is enabled by default, and you can turn one off by adding its exact file or
+folder name to **Disabled Local Mods**. If you would rather opt in, switch off **Auto Enable
+Local Mods** and list the mods you want under **Managed Local Mods**. Disabling a mod never
+deletes its source.
 
-### Enable / disable
+**Local Mods Directory** can point to a different folder, as long as it is a relative path
+inside the server folder with no `..`.
 
-By default, **Auto Enable Local Mods** is on. Every valid local source is enabled unless
-its exact source name appears under **Disabled Local Mods**.
+### Load order
 
-If you turn Auto Enable off, only names listed under **Managed Local Mods** are enabled.
-
-Source files are never deleted when you disable them.
-
-## Workshop mods
-
-For individual Workshop items, use AMP's normal:
-
-`Configuration -> Updates -> Steam Workshop Items`
-
-For collections, use:
-
-`Configuration -> OpenStarbound Mods -> Steam Workshop Collection IDs`
-
-Collection membership is resolved through Steam and cached so an already-resolved
-collection can still be staged if Steam's collection endpoint is temporarily unavailable.
-
-## Unified preference list
-
-Use:
-
-`Configuration -> OpenStarbound Mods -> Unified Mod Preference`
-
-Supported entries:
+**Unified Mod Preference** sets one order across Workshop and local mods, with one entry per
+line.
 
 ```text
 local:MyCoreFramework.pak
@@ -165,17 +87,9 @@ local:MyPrivateWeapons.pak
 MyBalancePatch
 ```
 
-Rules:
-
-- `ws:123456789` = Workshop item.
-- a bare numeric value = Workshop item.
-- `local:Name` = local source.
-- any other bare value = local source name.
-
-Configured sources omitted from the preference list are appended automatically:
-Workshop IDs numerically, then local sources alphabetically.
-
-AMP stages the example roughly as:
+A bare number or `ws:<id>` refers to a Workshop item, while `local:<name>` or any other name
+refers to a local mod. Enabled mods you leave out are appended afterward, Workshop items in ID
+order and then local mods alphabetically. The list above is staged as follows.
 
 ```text
 server/mods/
@@ -186,106 +100,28 @@ server/mods/
 └── amp_0005_local_MyBalancePatch/
 ```
 
-The originals remain under `localmods/` or AMP's Workshop storage.
+OpenStarbound still applies each mod's own `priority`, `requires` and `includes` metadata on top
+of this order. The mod manager never edits mod files, since doing so would change asset digests
+and break client compatibility.
 
-## OpenStarbound ordering semantics
+### Mods already in server/mods
 
-The `amp_####` sequence gives deterministic staging/fallback ordering, but OpenStarbound
-then evaluates asset-source metadata including:
+Anything in `openstarbound/server/mods/` without the `amp_` prefix is left untouched. To hand
+one over to the mod manager, stop the server, move it into `localmods/`, and then start the
+server or run Update.
 
-- `priority`
-- `name`
-- `requires`
-- `includes`
+With **Prune Previously Managed Staging** enabled, old `amp_` entries in `server/mods/` are
+removed and rebuilt on every sync. Files in `localmods/`, unprefixed mods in `server/mods/` and
+AMP's Workshop downloads are never deleted.
 
-The helper intentionally does not rewrite mod metadata or packed `.pak` files. Doing so
-could alter asset digests and cause client/server compatibility problems.
+### Troubleshooting
 
-For unpacked local mods, the report reads `_metadata` and identifies duplicate readable
-metadata names plus dependency notes. Packed `.pak` files are not automatically unpacked
-on every server start, so their metadata is not introspected by the helper.
+Each sync writes a report to `openstarbound/server/storage/amp_mods_report.txt`. It shows the
+resolved collections, which local mods were enabled or disabled, the final load order, and any
+missing, invalid or unrecognized entries in your settings, along with duplicate names and
+dependency notes read from unpacked local mods.
 
-## Existing manually installed mods
+## License
 
-Anything already in:
-
-`openstarbound/server/mods/`
-
-that does **not** start with `amp_` is considered unmanaged and is left untouched.
-
-To bring one under AMP management:
-
-1. Stop the server.
-2. Move the `.pak` or unpacked mod directory from `server/mods/` to `server/localmods/`.
-3. Start the server or run Update.
-4. The helper stages it back into `server/mods/` with an `amp_` prefix.
-
-## Diagnostic report
-
-After Update or server start, inspect:
-
-`openstarbound/server/storage/amp_mods_report.txt`
-
-It records:
-
-- AMP Workshop IDs
-- collection IDs and resolved members
-- discovered/enabled/disabled local sources
-- invalid local entries
-- requested unified preference
-- unknown preference entries
-- effective staging sequence
-- successfully staged sources
-- missing sources
-- unmanaged existing `server/mods` entries
-- duplicate readable local metadata names
-- readable local dependency/priority notes
-
-## Safety model
-
-Only entries beginning with `amp_` in `server/mods/` are automatically pruned/rebuilt.
-The helper does not delete:
-
-- local source mods under `localmods/`
-- manually managed non-`amp_` entries in `server/mods/`
-- Workshop source downloads
-
-The Local Mods Directory must be relative to the OpenStarbound server directory;
-absolute paths and `..` traversal are rejected.
-
-## Automatic synchronization
-
-Synchronization runs:
-
-- at the end of an AMP Update; and
-- immediately before the server starts.
-
-Human-readable helpers are included as:
-
-- `openstarboundmanagemods.sh`
-- `openstarboundmanagemods.ps1`
-
-They are also embedded into the AMP update stages, so the custom template does not depend
-on an externally hosted helper script.
-
-## Ports
-
-- 21025 TCP/UDP — game + query
-- 21026 TCP/UDP — RCON
-
-## Installing as a custom AMP repository
-
-1. Put the template files in a Git repository root.
-2. Rename `manifest.example.json` to `manifest.json`.
-3. Edit its author/origin/URL fields.
-4. Add the repository under:
-   `ADS -> Configuration -> Instance Deployment -> Configuration Repositories`
-5. Fetch/refresh the repository.
-6. Create or update the OpenStarbound instance.
-7. Run **Update** at least once.
-8. Put non-Workshop mods in `server/localmods/` and configure the new Mod settings.
-
-## Attribution
-
-The base configuration is derived from `CubeCoders/AMPTemplates` and retains the
-CubeCoders MIT license in `LICENSE-CubeCoders`.
+Based on [CubeCoders/AMPTemplates](https://github.com/CubeCoders/AMPTemplates), with the
+CubeCoders MIT license retained in [LICENSE-CubeCoders](LICENSE-CubeCoders).
