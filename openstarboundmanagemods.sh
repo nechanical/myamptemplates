@@ -40,6 +40,7 @@ list_values() {
   local raw="$1"
   raw="$(trim "$raw")"
   [[ -n "$raw" ]] || return 0
+  [[ "$raw" =~ ^\[[[:space:]]*\]$ ]] && return 0
 
   if [[ "$raw" == \[* ]]; then
     local quoted
@@ -131,12 +132,22 @@ auto_enable_local="$(bool_value "$(kvp_value 'AutoEnableLocalMods' "$MOD_CFG")" 
 local_rel="$(safe_local_dir "$(kvp_value 'LocalModsDirectory' "$MOD_CFG")")"
 LOCAL_DIR="$BASE_DIR/$local_rel"
 
-mkdir -p "$LOCAL_DIR"
-
 if [[ "$managed_enabled" != "true" ]]; then
   log "Managed mod synchronization is disabled."
   exit 0
 fi
+
+# Resolve aliases before comparing containment. Reject overlaps before cleanup,
+# including a symlinked source or staging directory pointing at the other tree.
+base_path="$(realpath -m -- "$BASE_DIR")" || exit 1
+mods_path="$(realpath -m -- "$MOD_DIR")" || exit 1
+source_path="$(realpath -m -- "$LOCAL_DIR")" || exit 1
+if [[ "$source_path" != "$base_path/"* || "$source_path" == "$mods_path" ||
+      "$source_path" == "$mods_path/"* || "$mods_path" == "$source_path/"* ]]; then
+  warn 'Local Mods Directory must be inside the server directory and must not overlap server/mods.'
+  exit 1
+fi
+mkdir -p "$LOCAL_DIR" || exit 1
 
 declare -a collection_item_ids=()
 declare -a collection_errors=()
@@ -240,13 +251,51 @@ download_item() {
     return 1
   fi
 
+  local username
+  username="$(workshop_steam_username "$steamcmd")"
+  if [[ -z "$username" ]]; then
+    warn 'Set Workshop Steam Username to the account authenticated in AMP, then rerun Update.'
+    return 1
+  fi
+
   log "Downloading missing Workshop item $id with AMP's cached Steam login..."
-  if /bin/bash "$steamcmd" +login +workshop_download_item "$STEAM_APP_ID" "$id" validate +quit; then
+  if /bin/bash "$steamcmd" +login "$username" +workshop_download_item "$STEAM_APP_ID" "$id" validate +quit; then
     return 0
   fi
 
   warn "SteamCMD could not download Workshop item $id."
   return 1
+}
+
+workshop_steam_username() {
+  local steamcmd="$1" username path block
+  username="$(trim "$(kvp_value 'WorkshopSteamUsername' "$MOD_CFG")")"
+  username="${username#\"}"; username="${username%\"}"
+  if [[ -n "$username" ]]; then
+    if [[ "$username" =~ ^[A-Za-z0-9_]+$ ]]; then
+      printf '%s' "$username"
+    else
+      warn 'Workshop Steam Username must contain only letters, numbers, or underscores.'
+    fi
+    return 0
+  fi
+  # Read identity keys only; never emit or copy cached authentication tokens.
+  local candidates=(
+    "$(dirname "$steamcmd")/config/config.vdf"
+    "$HOME/Steam/config/config.vdf"
+    "$HOME/.steam/steam/config/config.vdf"
+    "$HOME/.local/share/Steam/config/config.vdf"
+  )
+  local names=()
+  for path in "${candidates[@]}"; do
+    [[ -f "$path" ]] || continue
+    block="$(tr '\r\n' ' ' < "$path" | sed -n -E 's/.*"ConnectCache"[[:space:]]*\{([^{}]*)\}.*/\1/p')"
+    mapfile -t names < <(printf '%s' "$block" |
+      grep -oE '"[^"]*"[[:space:]]*"[^"]*"' |
+      sed -E 's/^"([^"]*)".*/\1/' | grep -E '^[A-Za-z0-9_]+$' | unique_lines)
+    (( ${#names[@]} == 1 )) && printf '%s' "${names[0]}"
+    return 0
+  done
 }
 
 # ----- Discover local/private mod sources -----
@@ -375,9 +424,13 @@ done
 
 # ----- Clear only AMP-managed staging entries -----
 
-if [[ "$prune_managed" == "true" ]]; then
-  find "$MOD_DIR" -maxdepth 1 \( -type f -o -type l -o -type d \) -name 'amp_*' -exec rm -rf {} + 2>/dev/null || true
-fi
+# Reconcile generated names even when broad orphan pruning is disabled.
+while IFS= read -r -d '' entry; do
+  name="$(basename "$entry")"
+  if [[ "$prune_managed" == true || "$name" =~ ^amp_[0-9]{4,}_(ws|local)_ ]]; then
+    rm -rf -- "$entry" || exit 1
+  fi
+done < <(find "$MOD_DIR" -mindepth 1 -maxdepth 1 -name 'amp_*' -print0)
 
 # Track unmanaged existing files so admins can distinguish them from managed sources.
 declare -a unmanaged_existing=()

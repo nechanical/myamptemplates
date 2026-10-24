@@ -66,6 +66,11 @@ if Steam's collection service is temporarily down. With **Download Missing Works
 enabled, any configured item that isn't on disk yet, which is common for items that only come
 from a collection, is downloaded through SteamCMD using AMP's saved Steam login.
 
+The helper reuses a single identity from SteamCMD's cache. If there is no cached identity or
+more than one account, set **Workshop Steam Username** to the account you already authenticated
+through AMP. This setting contains only the account name; passwords and cached tokens are
+never copied into the mod settings or report.
+
 #### Local mods
 
 Put private mods, GitHub releases and other non-Workshop mods in
@@ -90,7 +95,8 @@ Local Mods** and list the mods you want under **Managed Local Mods**. Disabling 
 deletes its source.
 
 **Local Mods Directory** can point to a different folder, as long as it is a relative path
-inside the server folder with no `..`.
+inside the server folder with no `..`. It must not overlap `server/mods/` or an ancestor of
+that directory. On Windows, source paths through junctions or symbolic links are rejected.
 
 #### Load order
 
@@ -128,9 +134,11 @@ Anything in `openstarbound/server/mods/` without the `amp_` prefix is left untou
 one over to the mod manager, stop the server, move it into `localmods/`, and then start the
 server or run Update.
 
-With **Prune Previously Managed Staging** enabled, old `amp_` entries in `server/mods/` are
-removed and rebuilt on every sync. Files in `localmods/`, unprefixed mods in `server/mods/` and
-AMP's Workshop downloads are never deleted.
+The helper always rebuilds its generated `amp_####_local_*` and `amp_####_ws_*` staging entries,
+including old names left by disabled mods or load-order changes. **Prune Previously Managed
+Staging** additionally removes other `amp_` entries. Switching pruning off preserves those
+unrecognized entries; it does not keep disabled managed mods active. Files in `localmods/`,
+unprefixed mods in `server/mods/` and AMP's Workshop downloads are never deleted.
 
 #### Troubleshooting
 
@@ -138,6 +146,20 @@ Each sync writes a report to `openstarbound/server/storage/amp_mods_report.txt`.
 resolved collections, which local mods were enabled or disabled, the final load order, and any
 missing, invalid or unrecognized entries in your settings, along with duplicate names and
 dependency notes read from unpacked local mods.
+
+## Development checks
+
+Run `python -m unittest discover -s tests -p "test_*.py" -v`. On Windows, this exercises
+PowerShell 5.1 and Git Bash; on Linux it exercises native Bash. The suite uses disposable
+instance trees and a local SteamCMD double, without contacting Steam or starting a game.
+Linux archive extraction requires `lzip` (automatically included for AMP containers); install
+the same package on non-container hosts. That regression is skipped when `lzip` is unavailable.
+The existing parser tests also run with
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/openstarboundmanagemods.Tests.ps1`.
+
+After editing either helper or `openstarbound_server.config`, run
+`python scripts/sync_embedded_helpers.py` to regenerate the installation payloads. Tests verify
+that the embedded bytes match their standalone sources.
 
 ## License
 

@@ -588,7 +588,7 @@
         "DisplayName": "Local Mods Directory",
         "Category": "OpenStarbound Mods:extension",
         "Subcategory": "Sources & Ordering:extension",
-        "Description": "Directory relative to the OpenStarbound server directory that stores source copies of non-Workshop mods. Absolute paths and '..' are rejected.",
+        "Description": "Source directory relative to the server directory. It must be inside the server directory and must not overlap server/mods. Absolute paths and .. are rejected; Windows source paths cannot traverse junctions or symbolic links.",
         "Keywords": "mods,local,private,directory,path",
         "FieldName": "ampLocalModsDirectory",
         "InputType": "text",
@@ -672,10 +672,23 @@
         }
     },
     {
+        "DisplayName": "Workshop Steam Username",
+        "Category": "OpenStarbound Mods:extension",
+        "Subcategory": "Sources & Ordering:extension",
+        "Description": "Steam account already authenticated through AMP. Leave blank to use a single cached SteamCMD identity. Required when the cache has no identity or multiple accounts. Passwords and tokens are never stored here.",
+        "Keywords": "mods,workshop,steam,username,login",
+        "FieldName": "ampWorkshopSteamUsername",
+        "InputType": "text",
+        "ParamFieldName": "$.ampWorkshopSteamUsername",
+        "DefaultValue": "",
+        "ExcludeFromImport": true,
+        "EnumValues": {}
+    },
+    {
         "DisplayName": "Prune Previously Managed Staging",
         "Category": "OpenStarbound Mods:extension",
         "Subcategory": "Sources & Ordering:extension",
-        "Description": "Remove old amp_* entries from server/mods before rebuilding. Source files in localmods and manually managed non-amp_* files are never removed.",
+        "Description": "Also remove unrecognized amp_* entries from server/mods. Known generated staging names are always rebuilt so disabled mods and old order entries cannot remain active. Source files and non-amp_* files are never removed.",
         "Keywords": "mods,prune,cleanup,managed",
         "FieldName": "ampPruneManagedMods",
         "InputType": "checkbox",

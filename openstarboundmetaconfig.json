@@ -21,7 +21,8 @@
                     "DisabledLocalMods": "ampDisabledLocalMods",
                     "UnifiedModPreference": "ampUnifiedModPreference",
                     "DownloadMissingWorkshopItems": "ampDownloadMissingWorkshopItems",
-                    "PruneManagedMods": "ampPruneManagedMods"
+                    "PruneManagedMods": "ampPruneManagedMods",
+                    "WorkshopSteamUsername": "ampWorkshopSteamUsername"
                 }
             }
         ]

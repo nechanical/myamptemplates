@@ -74,6 +74,33 @@ function Get-SafeName([string]$Name) {
     return $s
 }
 
+function Assert-SafeLocalDirectory {
+    $base = [IO.Path]::GetFullPath($BaseDir).TrimEnd('\', '/')
+    $mods = [IO.Path]::GetFullPath($ModDir).TrimEnd('\', '/')
+    $source = [IO.Path]::GetFullPath($LocalDir).TrimEnd('\', '/')
+    $comparison = [StringComparison]::OrdinalIgnoreCase
+    if (-not $source.StartsWith($base + '\', $comparison) -or
+        $source.Equals($mods, $comparison) -or
+        $source.StartsWith($mods + '\', $comparison) -or
+        $mods.StartsWith($source + '\', $comparison)) {
+        throw 'Local Mods Directory must be inside the server directory and must not overlap server/mods.'
+    }
+    # PowerShell 5.1 Resolve-Path does not resolve junctions. Reject aliases on
+    # either side before any cleanup rather than compare misleading lexical paths.
+    $cursor = $source
+    while ($cursor -and -not $cursor.Equals($base, $comparison)) {
+        $item = Get-Item -LiteralPath $cursor -Force -ErrorAction SilentlyContinue
+        if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'Local Mods Directory must not traverse junctions or symbolic links.'
+        }
+        $cursor = Split-Path -Parent $cursor
+    }
+    $item = Get-Item -LiteralPath $ModDir -Force -ErrorAction SilentlyContinue
+    if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'The managed server/mods directory must not be a junction or symbolic link.'
+    }
+}
+
 $NativeIds = @(Get-Ids (Get-KvpValue $AmpSteamCfg "SteamWorkshop.WorkshopItemIDs"))
 $CollectionIds = @(Get-Ids ((Get-ListValues (Get-KvpValue $ModCfg "WorkshopCollectionIDs")) -join ","))
 
@@ -91,12 +118,13 @@ $AutoEnableLocal = Get-Bool (Get-KvpValue $ModCfg "AutoEnableLocalMods") $true
 $LocalRel = Get-SafeLocalDir (Get-KvpValue $ModCfg "LocalModsDirectory")
 $LocalDir = Join-Path $BaseDir $LocalRel
 
-New-Item -ItemType Directory -Force -Path $LocalDir | Out-Null
-
 if (-not $ManagedEnabled) {
     Write-ModLog "Managed mod synchronization is disabled."
     exit 0
 }
+
+Assert-SafeLocalDirectory
+New-Item -ItemType Directory -Force -Path $LocalDir | Out-Null
 
 $CollectionItemIds = New-Object System.Collections.Generic.List[string]
 $CollectionErrors = New-Object System.Collections.Generic.List[string]
@@ -181,14 +209,46 @@ function Download-Item([string]$Id) {
         Write-ModWarning "SteamCMD was not found; cannot auto-download Workshop item $Id."
         return $false
     }
+    $username = Get-WorkshopSteamUsername $steamcmd
+    if (-not $username) {
+        Write-ModWarning 'Set Workshop Steam Username to the account authenticated in AMP, then rerun Update.'
+        return $false
+    }
     Write-ModLog "Downloading missing Workshop item $Id with AMP's cached Steam login..."
     try {
-        & $steamcmd "+login" "+workshop_download_item" $SteamAppId $Id "validate" "+quit"
+        & $steamcmd "+login" $username "+workshop_download_item" $SteamAppId $Id "validate" "+quit"
         return ($LASTEXITCODE -eq 0)
     } catch {
         Write-ModWarning "SteamCMD could not download Workshop item ${Id}: $($_.Exception.Message)"
         return $false
     }
+}
+
+function Get-WorkshopSteamUsername([string]$SteamCmd) {
+    $username = (Get-KvpValue $ModCfg 'WorkshopSteamUsername').Trim().Trim('"')
+    if ($username) {
+        if ($username -match '^[A-Za-z0-9_]+$') { return $username }
+        Write-ModWarning 'Workshop Steam Username must contain only letters, numbers, or underscores.'
+        return ''
+    }
+    # Read identity keys only; never emit or copy cached authentication tokens.
+    $candidates = @(
+        (Join-Path (Split-Path -Parent $SteamCmd) 'config\config.vdf'),
+        (Join-Path $env:USERPROFILE 'Steam\config\config.vdf'),
+        (Join-Path $env:USERPROFILE '.steam\steam\config\config.vdf')
+    )
+    foreach ($path in $candidates) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+        $content = Get-Content -LiteralPath $path -Raw -ErrorAction SilentlyContinue
+        $cache = [regex]::Match([string]$content, '"ConnectCache"\s*\{([^{}]*)\}')
+        $names = @([regex]::Matches($cache.Groups[1].Value, '"([^"]*)"\s*"[^"]*"') |
+            ForEach-Object { $_.Groups[1].Value } |
+            Where-Object { $_ -match '^[A-Za-z0-9_]+$' } | Select-Object -Unique)
+        if ($names.Count -eq 1) { return $names[0] }
+        # Do not select another installation/account when this cache is ambiguous.
+        return ''
+    }
+    return ''
 }
 
 # Discover local/private sources.
@@ -267,11 +327,11 @@ foreach ($name in $EnabledLocalNames) {
     if (-not $OrderedKeys.Contains($key)) { $OrderedKeys.Add($key) }
 }
 
-if ($PruneManaged) {
-    Get-ChildItem -LiteralPath $ModDir -Force -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -like "amp_*" } |
-        Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
-}
+# Always reconcile this helper's generated names, including disabled/renumbered
+# sources from older versions. The prune toggle additionally clears other amp_* entries.
+Get-ChildItem -LiteralPath $ModDir -Force -ErrorAction SilentlyContinue |
+    Where-Object { ($PruneManaged -and $_.Name -like 'amp_*') -or $_.Name -match '^amp_[0-9]{4,}_(ws|local)_' } |
+    Remove-Item -Force -Recurse -ErrorAction Stop
 
 $UnmanagedExisting = @(
     Get-ChildItem -LiteralPath $ModDir -Force -ErrorAction SilentlyContinue |
