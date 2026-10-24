@@ -1,2 +1,4 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+# Keep the Windows helper byte-identical to its embedded Base64 payload.
+openstarboundmanagemods.ps1 text eol=lf

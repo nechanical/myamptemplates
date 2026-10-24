@@ -1,0 +1,1 @@
+[{"Protocol":"Both","Port":27015,"Ref":"ServerPort","Name":"Game and RCON Port","Description":"Game traffic and Source RCON"},{"Protocol":"UDP","Port":27020,"Ref":"SourceTVPort","Name":"SourceTV Port","Description":"SourceTV traffic"},{"Protocol":"UDP","Port":27005,"Ref":"ClientPort","Name":"Client Port","Description":"Source client traffic"}]
