@@ -33,9 +33,6 @@ its old configuration until you refresh it.
 
 ## OpenStarbound Enhanced
 
-If you are upgrading an instance created from an earlier version, read
-[MIGRATION-v2-to-v3.md](MIGRATION-v2-to-v3.md) and [MIGRATION-v3-to-v4.md](MIGRATION-v3-to-v4.md).
-
 ### Ports
 
 | Port  | Protocol | Use            |
@@ -129,7 +126,7 @@ that directory. On Windows, source paths through junctions or symbolic links are
 
 #### Load order
 
-**Unified Mod Preference** sets one order across Workshop and local mods, with one entry per
+**Mod Load Order** sets one order across Workshop and local mods, with one entry per
 line.
 
 ```text

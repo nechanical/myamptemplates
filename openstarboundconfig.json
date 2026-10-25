@@ -642,7 +642,7 @@
         "Special": "array:text"
     },
     {
-        "DisplayName": "Unified Mod Preference",
+        "DisplayName": "Mod Load Order",
         "Category": "OpenStarbound Mods:extension",
         "Subcategory": "Sources & Ordering:extension",
         "Description": "Preferred managed staging order across Workshop and local mods. Use ws:123456789 or local:MyMod.pak. Bare numeric values are Workshop IDs; other bare values are local names. Unlisted managed sources are appended automatically.",
