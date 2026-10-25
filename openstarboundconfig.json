@@ -691,7 +691,7 @@
         "DisplayName": "Workshop Steam Username",
         "Category": "OpenStarbound Mods:extension",
         "Subcategory": "Sources & Ordering:extension",
-        "Description": "Steam account already authenticated through AMP. Leave blank to use a single cached SteamCMD identity. Required when the cache has no identity or multiple accounts. Passwords and tokens are never stored here.",
+        "Description": "Optional account already authenticated through AMP. Leave blank to use the account from Starbound's download manifest or a single cached account. The matching SteamCMD installation reuses its login cache; set this only when account selection is ambiguous. Passwords and tokens are never stored here.",
         "Keywords": "mods,workshop,steam,username,login",
         "FieldName": "ampWorkshopSteamUsername",
         "InputType": "text",

@@ -117,6 +117,12 @@ class HelperBehavior:
         self.config["DownloadMissingWorkshopItems"] = "false"
         self.powershell_prelude = ""
         self.fixture_bin = self.instance / "fixture-bin"
+        self.helper_env = os.environ.copy()
+        # Authentication discovery must never inspect the developer's Steam cache.
+        profile = self.instance / "profile"
+        profile.mkdir()
+        self.helper_env.update(HOME=str(profile), USERPROFILE=str(profile),
+                               LOCALAPPDATA=str(profile / "AppData" / "Local"))
 
     def write_config(self):
         (self.base / "amp_openstarbound_mods.cfg").write_text(
@@ -138,7 +144,7 @@ class HelperBehavior:
                 bin_path = self.bash_path(self.fixture_bin)
                 command = [BASH, "-c", 'export PATH="$1:$PATH"; /bin/bash "$2" --prestart',
                            "fixture", bin_path, str(self.helper)]
-        result = subprocess.run(command, capture_output=True, text=True, timeout=30, cwd=REPO)
+        result = subprocess.run(command, capture_output=True, text=True, timeout=30, cwd=REPO, env=self.helper_env)
         if expect_success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         else:
@@ -547,6 +553,127 @@ exec /usr/bin/ln "$@"
         self.assertFalse((self.instance / "steamcmd-args.txt").exists())
         self.assertIn("Workshop Steam Username", result.stdout + result.stderr)
 
+    def cached_steamcmd(self, directory, account="fixture_account"):
+        directory.mkdir(parents=True, exist_ok=True)
+        executable = directory / ("steamcmd.exe" if self.suffix == "ps1" else "steamcmd.sh")
+        source = self.instance / executable.name
+        if executable != source:
+            shutil.copyfile(source, executable)
+        (directory / "config").mkdir(exist_ok=True)
+        (directory / "config" / "config.vdf").write_text(
+            '"ConnectCache" { "' + account + '" "fake-token-never-log" }')
+        (directory / "own-library").touch()
+        (directory / "require-cache").touch()
+        return executable
+
+    def test_download_uses_authenticated_copy_instead_of_first_executable(self):
+        self.install_steamcmd()
+        self.cached_steamcmd(self.instance)
+        stale = self.instance / "openstarbound"
+        self.cached_steamcmd(stale)
+        (stale / "config" / "config.vdf").write_text('"ConnectCache" { }')
+        self.config["DownloadMissingWorkshopItems"] = "true"
+        (self.instance / "steamcmdplugin.kvp").write_text('SteamWorkshop.WorkshopItemIDs=["869900472"]')
+        result = self.run_helper()
+        self.assertFalse((stale / "steamcmd-args.txt").exists())
+        self.assertTrue((self.instance / "steamcmd-args.txt").exists())
+        self.assertEqual(self.targets(), ["amp_0001_ws_869900472.pak"])
+        self.assertNotIn("fake-token-never-log", result.stdout + result.stderr)
+
+    def test_explicit_account_selects_its_own_cached_installation(self):
+        self.prepare_automatic_download()
+        self.cached_steamcmd(self.instance)
+        stale = self.instance / "openstarbound"
+        self.cached_steamcmd(stale, "other_account")
+        self.run_helper()
+        self.assertFalse((stale / "steamcmd-args.txt").exists())
+        self.assertTrue((self.instance / "steamcmd-args.txt").exists())
+
+    def test_cached_account_is_not_borrowed_from_unlaunchable_installation(self):
+        self.install_steamcmd()
+        profile_steam = self.instance / "profile" / "Steam"
+        (profile_steam / "config").mkdir(parents=True)
+        (profile_steam / "config" / "config.vdf").write_text(
+            '"ConnectCache" { "fixture_account" "fake-token-never-log" }')
+        self.config["DownloadMissingWorkshopItems"] = "true"
+        (self.instance / "steamcmdplugin.kvp").write_text('SteamWorkshop.WorkshopItemIDs=["869900472"]')
+        self.run_helper(expect_success=False)
+        self.assertFalse((self.instance / "steamcmd-args.txt").exists())
+        self.assertFalse((self.instance / "config").exists())
+
+    def test_ambiguous_accounts_across_installations_are_not_guessed(self):
+        self.install_steamcmd()
+        self.cached_steamcmd(self.instance)
+        stale = self.instance / "openstarbound"
+        self.cached_steamcmd(stale)
+        (stale / "config" / "config.vdf").write_text(
+            '"ConnectCache" { "first" "fake1" "second" "fake2" }')
+        self.config["DownloadMissingWorkshopItems"] = "true"
+        (self.instance / "steamcmdplugin.kvp").write_text('SteamWorkshop.WorkshopItemIDs=["869900472"]')
+        self.run_helper(expect_success=False)
+        self.assertFalse((self.instance / "steamcmd-args.txt").exists())
+        self.assertFalse((stale / "steamcmd-args.txt").exists())
+
+    def test_latest_cache_for_same_account_is_reused_in_place(self):
+        self.prepare_automatic_download()
+        self.cached_steamcmd(self.instance)
+        stale = self.instance / "openstarbound"
+        self.cached_steamcmd(stale)
+        os.utime(stale / "config" / "config.vdf", (1, 1))
+        original = (self.instance / "config" / "config.vdf").read_bytes()
+        self.run_helper()
+        self.assertFalse((stale / "steamcmd-args.txt").exists())
+        self.assertEqual((self.instance / "config" / "config.vdf").read_bytes(), original)
+
+    def test_amp_manifest_owner_selects_the_account_that_downloaded_starbound(self):
+        self.install_steamcmd()
+        executable = self.cached_steamcmd(self.instance)
+        stale = self.instance / "openstarbound"
+        self.cached_steamcmd(stale, "other_account")
+        (self.instance / "config" / "config.vdf").write_text(
+            '"Accounts" { "fixture_account" { "SteamID" "76561198000000001" } } '
+            '"ConnectCache" { "old_account" "old-token" "fixture_account" "fake-token-never-log" }')
+        manifest = stale / "211820" / "steamapps" / "appmanifest_211820.acf"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text('"AppState" { "LastOwner" "76561198000000001" '
+                            '"LauncherPath" "' + str(executable).replace("\\", "\\\\") + '" }')
+        self.config["DownloadMissingWorkshopItems"] = "true"
+        (self.instance / "steamcmdplugin.kvp").write_text('SteamWorkshop.WorkshopItemIDs=["869900472"]')
+        self.run_helper()
+        self.assertFalse((stale / "steamcmd-args.txt").exists())
+        self.assertEqual(self.targets(), ["amp_0001_ws_869900472.pak"])
+
+    def test_manifest_launcher_wins_over_a_newer_unrelated_cache(self):
+        self.install_steamcmd()
+        executable = self.cached_steamcmd(self.instance)
+        other = self.instance / "openstarbound"
+        self.cached_steamcmd(other)
+        cache = self.instance / "config" / "config.vdf"
+        cache.write_text('"Accounts" { "fixture_account" { "SteamID" "76561198000000001" } } '
+                         '"ConnectCache" { "fixture_account" "fake-token-never-log" }')
+        (other / "config" / "config.vdf").write_bytes(cache.read_bytes())
+        os.utime(cache, (1, 1))
+        manifest = other / "211820" / "steamapps" / "appmanifest_211820.acf"
+        manifest.parent.mkdir(parents=True)
+        launcher = str(executable).replace("\\", "\\\\") if self.suffix == "ps1" else self.bash_path(executable)
+        manifest.write_text('"AppState" { "LastOwner" "76561198000000001" "LauncherPath" "' + launcher + '" }')
+        self.config["DownloadMissingWorkshopItems"] = "true"
+        (self.instance / "steamcmdplugin.kvp").write_text('SteamWorkshop.WorkshopItemIDs=["869900472"]')
+        self.run_helper()
+        self.assertFalse((other / "steamcmd-args.txt").exists())
+        self.assertTrue((self.instance / "steamcmd-args.txt").exists())
+
+    def test_profile_steamcmd_with_amp_cache_is_discovered(self):
+        self.install_steamcmd()
+        profile_steam = self.instance / "profile" / "Steam"
+        self.cached_steamcmd(profile_steam)
+        self.config["DownloadMissingWorkshopItems"] = "true"
+        (self.instance / "steamcmdplugin.kvp").write_text('SteamWorkshop.WorkshopItemIDs=["869900472"]')
+        self.run_helper()
+        self.assertTrue((profile_steam / "steamcmd-args.txt").exists())
+        self.assertFalse((self.instance / "steamcmd-args.txt").exists())
+        self.assertEqual(self.targets(), ["amp_0001_ws_869900472.pak"])
+
     def prepare_automatic_download(self, item="123456789"):
         self.install_steamcmd()
         self.config.update(DownloadMissingWorkshopItems="true", WorkshopSteamUsername="fixture_account")
@@ -623,6 +750,12 @@ class FakeSteamCmd { static int Main(string[] args) {
  File.WriteAllLines(Path.Combine(root, "steamcmd-args.txt"), args);
  Console.WriteLine("fixture download progress"); Console.Error.WriteLine("fixture stderr progress");
  if (args.Length != 11 || args[0] != "+@ShutdownOnFailedCommand" || args[1] != "1" || args[2] != "+@NoPromptForPassword" || args[3] != "1" || args[4] != "+login" || args[5] != "fixture_account") return 2;
+ if (File.Exists(Path.Combine(root, "require-cache")) &&
+     (Path.GetFullPath(Environment.CurrentDirectory).TrimEnd(Path.DirectorySeparatorChar) != root.TrimEnd(Path.DirectorySeparatorChar) ||
+      !File.Exists(Path.Combine(root, "config", "config.vdf")) ||
+      !File.ReadAllText(Path.Combine(root, "config", "config.vdf")).Contains("\"" + args[5] + "\" \"fake-token-never-log\""))) {
+  Console.Error.WriteLine("Cached credentials not found."); return 5;
+ }
  if (File.Exists(Path.Combine(root, "check-stdin")) && Console.ReadLine() != null) return 3;
  if (File.Exists(Path.Combine(root, "fail-download"))) return 2;
  if (File.Exists(Path.Combine(root, "stall-download"))) {
@@ -654,6 +787,9 @@ printf '%s\\n' "$@" > "$root/steamcmd-args.txt"
 echo 'fixture download progress'
 echo 'fixture stderr progress' >&2
 [[ "$#" == 11 && "$1" == +@ShutdownOnFailedCommand && "$2" == 1 && "$3" == +@NoPromptForPassword && "$4" == 1 && "$5" == +login && "$6" == fixture_account ]] || exit 2
+if [[ -f "$root/require-cache" ]] && { [[ "$PWD" != "$root" ]] || ! grep -q '"fixture_account" "fake-token-never-log"' "$root/config/config.vdf"; }; then
+  echo 'Cached credentials not found.' >&2; exit 5
+fi
 if [[ -f "$root/check-stdin" ]]; then
   if IFS= read -r input; then exit 3; fi
 fi

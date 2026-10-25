@@ -201,8 +201,7 @@ function Find-ItemSource([string]$Id) {
         (Join-Path $env:USERPROFILE "Steam\steamapps\workshop\content\$SteamAppId\$Id"),
         (Join-Path $env:USERPROFILE ".steam\steam\steamapps\workshop\content\$SteamAppId\$Id")
     )
-    $steamcmd = Find-SteamCmd
-    if ($steamcmd) {
+    foreach ($steamcmd in @(Get-SteamCmdCandidates)) {
         $candidates += Join-Path (Split-Path -Parent $steamcmd) "steamapps\workshop\content\$SteamAppId\$Id"
     }
     foreach ($p in $candidates) {
@@ -220,16 +219,94 @@ function Get-ItemPaks([string]$Source) {
         Sort-Object FullName
 }
 
-function Find-SteamCmd {
+function Get-SteamCmdCandidates {
     $candidates = @(
         (Join-Path $RootDir "steamcmd.exe"),
         (Join-Path $RootDir "steamcmd\steamcmd.exe"),
         (Join-Path $InstanceDir "steamcmd.exe"),
+        (Join-Path $InstanceDir "steamcmd\steamcmd.exe"),
         (Join-Path $env:USERPROFILE "Steam\steamcmd.exe")
     )
-    foreach ($p in $candidates) {
-        if ($p -and (Test-Path -LiteralPath $p -PathType Leaf)) { return $p }
+    if ($env:LOCALAPPDATA) {
+        $candidates += Join-Path $env:LOCALAPPDATA 'Steam\steamcmd\steamcmd.exe'
     }
+    foreach ($p in @($candidates | Select-Object -Unique)) {
+        if (Test-Path -LiteralPath $p -PathType Leaf) { $p }
+    }
+}
+
+function Get-WorkshopSteamContext {
+    $executables = @(Get-SteamCmdCandidates)
+    if ($executables.Count -eq 0) {
+        Write-ModWarning 'SteamCMD was not found; cannot auto-download Workshop items.'
+        return $null
+    }
+    $username = (Get-KvpValue $ModCfg 'WorkshopSteamUsername').Trim().Trim('"')
+    if ($username -and $username -notmatch '^[A-Za-z0-9_]+$') {
+        Write-ModWarning 'Workshop Steam Username must contain only letters, numbers, or underscores.'
+        return $null
+    }
+    # The manifest identifies the account AMP used for its successful app update.
+    # Only use that identity in a cache belonging to the executable we will launch.
+    $owner = ''
+    $launcher = ''
+    $manifests = @(
+        (Join-Path $RootDir "$SteamAppId\steamapps\appmanifest_$SteamAppId.acf"),
+        (Join-Path $RootDir "steamapps\appmanifest_$SteamAppId.acf"),
+        (Join-Path $BaseDir "steamapps\appmanifest_$SteamAppId.acf")
+    )
+    $manifestFiles = @($manifests | ForEach-Object { Get-Item -LiteralPath $_ -ErrorAction SilentlyContinue })
+    foreach ($manifest in @($manifestFiles | Sort-Object LastWriteTimeUtc -Descending)) {
+        $content = [string](Get-Content -LiteralPath $manifest.FullName -Raw -ErrorAction SilentlyContinue)
+        $match = [regex]::Match($content, '"LastOwner"\s*"([1-9][0-9]+)"')
+        if ($match.Success) {
+            $owner = $match.Groups[1].Value
+            $launcher = [regex]::Match($content, '"LauncherPath"\s*"([^"]+)"').Groups[1].Value.Replace('\\', '\')
+            break
+        }
+    }
+    $allNames = @()
+    $contexts = @(
+        foreach ($executable in $executables) {
+            $cachePath = Join-Path (Split-Path -Parent $executable) 'config\config.vdf'
+            if (-not (Test-Path -LiteralPath $cachePath -PathType Leaf)) { continue }
+            $content = [string](Get-Content -LiteralPath $cachePath -Raw -ErrorAction SilentlyContinue)
+            $cache = [regex]::Match($content, '"ConnectCache"\s*\{([^{}]*)\}')
+            # Read account names only. Tokens stay in SteamCMD's original cache.
+            $names = @([regex]::Matches($cache.Groups[1].Value, '"([^"]*)"\s*"[^"]*"') |
+                ForEach-Object { $_.Groups[1].Value } |
+                Where-Object { $_ -match '^[A-Za-z0-9_]+$' } | Select-Object -Unique)
+            $allNames += $names
+            $ownerName = ''
+            foreach ($account in [regex]::Matches($content, '"([A-Za-z0-9_]+)"\s*\{[^{}]*"SteamID"\s*"([0-9]+)"[^{}]*\}')) {
+                if ($owner -and $account.Groups[2].Value -eq $owner) { $ownerName = $account.Groups[1].Value }
+            }
+            $selected = ''
+            if ($username) {
+                if ($names -icontains $username -or $ownerName -ieq $username) { $selected = $username }
+            } elseif ($ownerName) { $selected = $ownerName }
+            elseif ($names.Count -eq 1) { $selected = $names[0] }
+            if ($selected) {
+                [pscustomobject]@{ Executable = $executable; Username = $selected
+                    OwnerMatch = [bool]($ownerName -and $selected -ieq $ownerName)
+                    LauncherMatch = [bool]($launcher -and $executable -ieq $launcher)
+                    Modified = (Get-Item -LiteralPath $cachePath).LastWriteTimeUtc }
+            }
+        }
+    )
+    $ownerContexts = @($contexts | Where-Object OwnerMatch)
+    if ($ownerContexts.Count -gt 0) { $contexts = $ownerContexts }
+    if ($contexts.Count -gt 0) {
+        $identities = @($contexts.Username | Select-Object -Unique)
+        if (-not $username -and $ownerContexts.Count -eq 0) { $identities = @($allNames | Select-Object -Unique) }
+        if ($identities.Count -eq 1) {
+            return ($contexts | Sort-Object LauncherMatch, Modified -Descending | Select-Object -First 1)
+        }
+    } elseif ($username) {
+        # Explicit names still support caches whose format we cannot inspect.
+        return [pscustomobject]@{ Executable = $executables[0]; Username = $username }
+    }
+    Write-ModWarning 'Cannot identify AMP''s cached Steam account unambiguously. Set Workshop Steam Username to the account authenticated in AMP, then rerun Update.'
     return $null
 }
 
@@ -289,16 +366,11 @@ public sealed class AmpWorkshopDownloadJob : IDisposable {
 
 function Download-Item([string]$Id) {
     if (-not $DownloadMissing) { return $false }
-    $steamcmd = Find-SteamCmd
-    if (-not $steamcmd) {
-        Write-ModWarning "SteamCMD was not found; cannot auto-download Workshop item $Id."
-        return $false
-    }
-    $username = Get-WorkshopSteamUsername $steamcmd
-    if (-not $username) {
-        Write-ModWarning 'Set Workshop Steam Username to the account authenticated in AMP, then rerun Update.'
-        return $false
-    }
+    $context = Get-WorkshopSteamContext
+    if (-not $context) { return $false }
+    $steamcmd = $context.Executable
+    $username = $context.Username
+    Write-ModLog "Using SteamCMD and its existing login cache: $steamcmd"
     Write-ModLog "Downloading locally missing Workshop item $Id with AMP's cached Steam login (timeout: ${DownloadTimeoutSeconds}s)..."
     $downloadProcess = [Diagnostics.Process]::new()
     $downloadProcess.StartInfo.FileName = Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\powershell.exe'
@@ -356,33 +428,6 @@ function Download-Item([string]$Id) {
         }
         $downloadProcess.Dispose()
     }
-}
-
-function Get-WorkshopSteamUsername([string]$SteamCmd) {
-    $username = (Get-KvpValue $ModCfg 'WorkshopSteamUsername').Trim().Trim('"')
-    if ($username) {
-        if ($username -match '^[A-Za-z0-9_]+$') { return $username }
-        Write-ModWarning 'Workshop Steam Username must contain only letters, numbers, or underscores.'
-        return ''
-    }
-    # Read identity keys only; never emit or copy cached authentication tokens.
-    $candidates = @(
-        (Join-Path (Split-Path -Parent $SteamCmd) 'config\config.vdf'),
-        (Join-Path $env:USERPROFILE 'Steam\config\config.vdf'),
-        (Join-Path $env:USERPROFILE '.steam\steam\config\config.vdf')
-    )
-    foreach ($path in $candidates) {
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
-        $content = Get-Content -LiteralPath $path -Raw -ErrorAction SilentlyContinue
-        $cache = [regex]::Match([string]$content, '"ConnectCache"\s*\{([^{}]*)\}')
-        $names = @([regex]::Matches($cache.Groups[1].Value, '"([^"]*)"\s*"[^"]*"') |
-            ForEach-Object { $_.Groups[1].Value } |
-            Where-Object { $_ -match '^[A-Za-z0-9_]+$' } | Select-Object -Unique)
-        if ($names.Count -eq 1) { return $names[0] }
-        # Do not select another installation/account when this cache is ambiguous.
-        return ''
-    }
-    return ''
 }
 
 # Discover local/private sources.

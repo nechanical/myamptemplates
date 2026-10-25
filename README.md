@@ -80,10 +80,18 @@ prints a status message every 30 seconds while waiting. A timeout terminates the
 process tree, records the failure, and stops synchronization. Linux automatic downloads use
 GNU `timeout` from `coreutils`, included in the container package list.
 
-The helper reuses a single identity from SteamCMD's cache. If there is no cached identity or
-more than one account, set **Workshop Steam Username** to the account you already authenticated
-through AMP. This setting contains only the account name; passwords and cached tokens are
-never copied into the mod settings or report.
+The helper keeps the SteamCMD executable and its login cache together, including AMP's shared
+`Steam` installation in the service user's profile. Starbound's download manifest identifies
+the account and launcher used by AMP; otherwise, a single cached account is selected, with the
+most recently updated cache preferred when several copies contain that account. A stale local
+SteamCMD copy no longer takes precedence over the authenticated installation. The selected
+executable path appears in the console for troubleshooting.
+
+Leave **Workshop Steam Username** blank for automatic selection. If the cached accounts remain
+ambiguous, set it to the account already authenticated through AMP. The helper selects that
+account's installation and runs from its directory, reusing SteamCMD's token in place. It never
+copies login tokens or requests another password or Steam Guard code. Steam can still reject
+an expired or revoked token; that failure remains visible and stops synchronization.
 
 “Missing” means the item has no usable files in the local download locations; it does not
 mean that the public Workshop page was removed. The helper also checks the SteamCMD
@@ -180,7 +188,9 @@ Run `python -m unittest discover -s tests -p "test_*.py" -v`. On Windows, this e
 PowerShell 5.1 and Git Bash; on Linux it exercises native Bash. The suite uses disposable
 instance trees and a local SteamCMD double, without contacting Steam or starting a game.
 Download tests use real subprocesses to check output, closed stdin, deadlines and descendant
-cleanup. Linux/Git Bash download tests require GNU `timeout` from `coreutils`.
+cleanup. Authentication regressions use isolated profiles and multiple SteamCMD copies to check
+cache pairing, manifest account/launcher selection, and unchanged credential files. These doubles
+do not verify a live Steam login. Linux/Git Bash download tests require GNU `timeout` from `coreutils`.
 Collection regressions require `jq` on PATH, including when using Git Bash on Windows, and
 replace HTTP requests with local fixtures while running the real JSON parser.
 Linux archive extraction requires `lzip` (automatically included for AMP containers); install

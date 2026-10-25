@@ -240,8 +240,9 @@ find_item_source() {
   )
   local p
   local steamcmd
-  steamcmd="$(find_steamcmd || true)"
-  [[ -n "$steamcmd" ]] && candidates+=("$(dirname "$steamcmd")/steamapps/workshop/content/$STEAM_APP_ID/$id")
+  while IFS= read -r steamcmd; do
+    candidates+=("$(dirname "$steamcmd")/steamapps/workshop/content/$STEAM_APP_ID/$id")
+  done < <(steamcmd_candidates)
   for p in "${candidates[@]}"; do
     if [[ -d "$p" ]] && { [[ -f "$p/_metadata" ]] ||
         [[ -n "$(find -L "$p" -maxdepth 3 -type f -iname '*.pak' -print -quit 2>/dev/null)" ]]; }; then
@@ -252,15 +253,98 @@ find_item_source() {
   return 1
 }
 
-find_steamcmd() {
+steamcmd_candidates() {
   local candidates=(
     "$ROOT_DIR/steamcmd.sh"
+    "$ROOT_DIR/steamcmd/steamcmd.sh"
     "$INSTANCE_DIR/steamcmd.sh"
+    "$INSTANCE_DIR/steamcmd/steamcmd.sh"
+    "$HOME/Steam/steamcmd.sh"
+    "$HOME/.steam/steam/steamcmd.sh"
+    "$HOME/.local/share/Steam/steamcmd.sh"
   )
   local p
   for p in "${candidates[@]}"; do
-    [[ -f "$p" ]] && { printf '%s\n' "$p"; return 0; }
+    [[ -f "$p" ]] && printf '%s\n' "$p"
+  done | unique_lines
+}
+
+workshop_steam_context() {
+  local username owner='' launcher='' manifest path content block owner_name selected name
+  username="$(trim "$(kvp_value 'WorkshopSteamUsername' "$MOD_CFG")")"
+  username="${username#\"}"; username="${username%\"}"
+  if [[ -n "$username" && ! "$username" =~ ^[A-Za-z0-9_]+$ ]]; then
+    warn 'Workshop Steam Username must contain only letters, numbers, or underscores.'
+    return 1
+  fi
+  local executables=() manifests=() contexts=() owner_contexts=() names=() all_names=() identities=()
+  mapfile -t executables < <(steamcmd_candidates)
+  if (( ${#executables[@]} == 0 )); then
+    warn 'SteamCMD wrapper was not found; cannot auto-download Workshop items.'
+    return 1
+  fi
+  # Match the account from AMP's successful app update to the same installation's
+  # cache. Never combine an account from one cache with another executable.
+  for manifest in "$ROOT_DIR/$STEAM_APP_ID/steamapps/appmanifest_$STEAM_APP_ID.acf" \
+      "$ROOT_DIR/steamapps/appmanifest_$STEAM_APP_ID.acf" "$BASE_DIR/steamapps/appmanifest_$STEAM_APP_ID.acf"; do
+    [[ -f "$manifest" ]] && manifests+=("$(stat -c %Y "$manifest")"$'\t'"$manifest")
   done
+  while IFS=$'\t' read -r _ manifest; do
+    [[ -f "$manifest" ]] || continue
+    content="$(tr '\r\n' ' ' < "$manifest")"
+    owner="$(printf '%s' "$content" | sed -n -E 's/.*"LastOwner"[[:space:]]*"([1-9][0-9]+)".*/\1/p')"
+    if [[ -n "$owner" ]]; then
+      launcher="$(printf '%s' "$content" | sed -n -E 's/.*"LauncherPath"[[:space:]]*"([^"]+)".*/\1/p')"
+      break
+    fi
+  done < <(printf '%s\n' "${manifests[@]}" | sort -t $'\t' -k1,1nr)
+  for path in "${executables[@]}"; do
+    local cache="$(dirname "$path")/config/config.vdf"
+    [[ -f "$cache" ]] || continue
+    content="$(tr '\r\n' ' ' < "$cache")"
+    block="$(printf '%s' "$content" | sed -n -E 's/.*"ConnectCache"[[:space:]]*\{([^{}]*)\}.*/\1/p')"
+    # Only identity names leave this function; tokens stay in their original file.
+    mapfile -t names < <(printf '%s' "$block" |
+      grep -oE '"[^"]*"[[:space:]]*"[^"]*"' |
+      sed -E 's/^"([^"]*)".*/\1/' | grep -E '^[A-Za-z0-9_]+$' | unique_lines)
+    all_names+=("${names[@]}")
+    owner_name=''
+    if [[ -n "$owner" ]]; then
+      owner_name="$(printf '%s' "$content" | sed -n -E 's/.*"([A-Za-z0-9_]+)"[[:space:]]*\{[^{}]*"SteamID"[[:space:]]*"'"$owner"'"[^{}]*\}.*/\1/p')"
+    fi
+    selected=''
+    if [[ -n "$username" ]]; then
+      for name in "${names[@]}" "$owner_name"; do
+        [[ "${name,,}" == "${username,,}" ]] && selected="$username"
+      done
+    elif [[ -n "$owner_name" ]]; then selected="$owner_name"
+    elif (( ${#names[@]} == 1 )); then selected="${names[0]}"
+    fi
+    if [[ -n "$selected" ]]; then
+      local launcher_match=0
+      [[ -n "$launcher" && ( "$launcher" == "$path" || "$launcher" == "$(dirname "$path")/linux32/steamcmd" ) ]] && launcher_match=1
+      local record="$launcher_match"$'\t'"$(stat -c %Y "$cache")"$'\t'"$path"$'\t'"$selected"
+      contexts+=("$record")
+      [[ -n "$owner_name" && "${selected,,}" == "${owner_name,,}" ]] && owner_contexts+=("$record")
+    fi
+  done
+  (( ${#owner_contexts[@]} == 0 )) || contexts=("${owner_contexts[@]}")
+  if (( ${#contexts[@]} > 0 )); then
+    mapfile -t identities < <(printf '%s\n' "${contexts[@]}" | cut -f4 | tr '[:upper:]' '[:lower:]' | unique_lines)
+    if [[ -z "$username" ]] && (( ${#owner_contexts[@]} == 0 )); then
+      mapfile -t identities < <(printf '%s\n' "${all_names[@]}" | tr '[:upper:]' '[:lower:]' | unique_lines)
+    fi
+    if (( ${#identities[@]} == 1 )); then
+      IFS=$'\t' read -r _ _ path selected < <(printf '%s\n' "${contexts[@]}" | sort -t $'\t' -k1,1nr -k2,2nr | head -n 1)
+      printf '%s\n%s\n' "$path" "$selected"
+      return 0
+    fi
+  elif [[ -n "$username" ]]; then
+    # Explicit names still support cache formats we cannot inspect.
+    printf '%s\n%s\n' "${executables[0]}" "$username"
+    return 0
+  fi
+  warn "Cannot identify AMP's cached Steam account unambiguously. Set Workshop Steam Username to the account authenticated in AMP, then rerun Update."
   return 1
 }
 
@@ -268,24 +352,16 @@ download_item() {
   local id="$1"
   [[ "$download_missing" == "true" ]] || return 1
 
-  local steamcmd
-  steamcmd="$(find_steamcmd || true)"
-  if [[ -z "$steamcmd" ]]; then
-    warn "SteamCMD wrapper was not found; cannot auto-download Workshop item $id."
-    return 1
-  fi
-
-  local username
-  username="$(workshop_steam_username "$steamcmd")"
-  if [[ -z "$username" ]]; then
-    warn 'Set Workshop Steam Username to the account authenticated in AMP, then rerun Update.'
-    return 1
-  fi
+  local context=() steamcmd username
+  mapfile -t context < <(workshop_steam_context)
+  (( ${#context[@]} == 2 )) || return 1
+  steamcmd="${context[0]}"; username="${context[1]}"
 
   if ! command -v timeout >/dev/null 2>&1; then
     warn 'GNU timeout is required for unattended Workshop downloads. Install coreutils, then rerun Update.'
     return 1
   fi
+  log "Using SteamCMD and its existing login cache: $steamcmd"
   log "Downloading locally missing Workshop item $id with AMP's cached Steam login (timeout: ${download_timeout}s)..."
   # timeout owns a process group, so both the wrapper and its descendants are
   # terminated at the deadline. No inherited input can leave a password prompt open.
@@ -303,37 +379,6 @@ download_item() {
     warn "SteamCMD failed for Workshop item $id (exit code $status). Check the output above; reauthenticate through AMP if required."
   fi
   return "$status"
-}
-
-workshop_steam_username() {
-  local steamcmd="$1" username path block
-  username="$(trim "$(kvp_value 'WorkshopSteamUsername' "$MOD_CFG")")"
-  username="${username#\"}"; username="${username%\"}"
-  if [[ -n "$username" ]]; then
-    if [[ "$username" =~ ^[A-Za-z0-9_]+$ ]]; then
-      printf '%s' "$username"
-    else
-      warn 'Workshop Steam Username must contain only letters, numbers, or underscores.'
-    fi
-    return 0
-  fi
-  # Read identity keys only; never emit or copy cached authentication tokens.
-  local candidates=(
-    "$(dirname "$steamcmd")/config/config.vdf"
-    "$HOME/Steam/config/config.vdf"
-    "$HOME/.steam/steam/config/config.vdf"
-    "$HOME/.local/share/Steam/config/config.vdf"
-  )
-  local names=()
-  for path in "${candidates[@]}"; do
-    [[ -f "$path" ]] || continue
-    block="$(tr '\r\n' ' ' < "$path" | sed -n -E 's/.*"ConnectCache"[[:space:]]*\{([^{}]*)\}.*/\1/p')"
-    mapfile -t names < <(printf '%s' "$block" |
-      grep -oE '"[^"]*"[[:space:]]*"[^"]*"' |
-      sed -E 's/^"([^"]*)".*/\1/' | grep -E '^[A-Za-z0-9_]+$' | unique_lines)
-    (( ${#names[@]} == 1 )) && printf '%s' "${names[0]}"
-    return 0
-  done
 }
 
 # ----- Discover local/private mod sources -----
