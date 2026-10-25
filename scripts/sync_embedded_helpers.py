@@ -5,6 +5,7 @@ default server config. The regression suite checks the resulting bytes.
 """
 
 import base64
+import gzip
 import json
 from pathlib import Path
 import re
@@ -22,7 +23,20 @@ def main():
             source = root / "openstarbound_server.config"
         else:
             continue
-        payload = base64.b64encode(source.read_bytes()).decode("ascii")
+        data = source.read_bytes()
+        if stage["UpdateStageName"] == "Install Unified Mod Helper" and stage["UpdateSourcePlatform"] == "Windows":
+            # Growing helpers otherwise exceed CreateProcess's 32,767-character limit.
+            payload = base64.b64encode(gzip.compress(data, mtime=0)).decode("ascii")
+            stage["UpdateSourceArgs"] = (
+                '-NoProfile -ExecutionPolicy Bypass -Command "'
+                "$ErrorActionPreference='Stop'; $b='" + payload + "'; "
+                "$m=[IO.MemoryStream]::new([Convert]::FromBase64String($b)); "
+                "$g=[IO.Compression.GzipStream]::new($m,[IO.Compression.CompressionMode]::Decompress); "
+                "$f=[IO.File]::Create('{{$FullInstanceDir}}openstarboundmanagemods.ps1'); "
+                'try { $g.CopyTo($f) } finally { $f.Dispose(); $g.Dispose(); $m.Dispose() }"'
+            )
+            continue
+        payload = base64.b64encode(data).decode("ascii")
         arguments, count = re.subn(r"[A-Za-z0-9+/=]{300,}", payload, stage["UpdateSourceArgs"])
         if count != 1:
             raise ValueError("Expected one payload in " + stage["UpdateStageName"])

@@ -35,6 +35,19 @@ if ($stages.Count -ne 1) { throw "Expected exactly one Windows helper installati
 $payloadMatch = [regex]::Match($stages[0].UpdateSourceArgs, '\$b=''(?<Payload>[A-Za-z0-9+/=]+)''')
 if (-not $payloadMatch.Success) { throw "Could not locate the embedded Windows helper." }
 $embeddedBytes = [Convert]::FromBase64String($payloadMatch.Groups["Payload"].Value)
+if ($stages[0].UpdateSourceArgs -match 'GzipStream') {
+    $inputStream = [IO.MemoryStream]::new($embeddedBytes)
+    $gzipStream = [IO.Compression.GzipStream]::new($inputStream, [IO.Compression.CompressionMode]::Decompress)
+    $outputStream = [IO.MemoryStream]::new()
+    try {
+        $gzipStream.CopyTo($outputStream)
+        $embeddedBytes = $outputStream.ToArray()
+    } finally {
+        $outputStream.Dispose()
+        $gzipStream.Dispose()
+        $inputStream.Dispose()
+    }
+}
 $sourceBytes = [IO.File]::ReadAllBytes($helperPath)
 Assert-Check ([Convert]::ToBase64String($embeddedBytes) -ceq [Convert]::ToBase64String($sourceBytes)) "Embedded helper matches standalone bytes exactly"
 $embeddedErrors = $null

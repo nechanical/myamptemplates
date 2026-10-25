@@ -672,6 +672,22 @@
         }
     },
     {
+        "DisplayName": "Workshop Download Timeout",
+        "Category": "OpenStarbound Mods:extension",
+        "Subcategory": "Sources & Ordering:extension",
+        "Description": "Maximum seconds per automatic SteamCMD Workshop download. Timed-out downloads are stopped and fail synchronization. Reauthenticate through AMP if login is required; increase this for large mods or slow connections.",
+        "Keywords": "mods,workshop,download,steamcmd,timeout",
+        "FieldName": "ampWorkshopDownloadTimeoutSeconds",
+        "InputType": "number",
+        "ParamFieldName": "$.ampWorkshopDownloadTimeoutSeconds",
+        "DefaultValue": "900",
+        "MinValue": "1",
+        "MaxValue": "86400",
+        "Suffix": "seconds",
+        "ExcludeFromImport": true,
+        "EnumValues": {}
+    },
+    {
         "DisplayName": "Workshop Steam Username",
         "Category": "OpenStarbound Mods:extension",
         "Subcategory": "Sources & Ordering:extension",

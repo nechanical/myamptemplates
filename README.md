@@ -62,14 +62,35 @@ again just before the server starts, staging each enabled mod into
 Add individual items where AMP normally expects them, in
 `Configuration -> Updates -> Steam Workshop Items`. Add whole collections under **Steam
 Workshop Collection IDs**. A collection's contents are cached once resolved, so it still loads
-if Steam's collection service is temporarily down. With **Download Missing Workshop Items**
+if Steam's collection service is temporarily down. Lookups are batched in groups of up to 50;
+each collection keeps its own cache and failure status. A successful empty collection clears
+its previous membership, including when that empty cache is later used offline.
+Linux collection support requires `jq`, included automatically for AMP containers; install
+`jq` on non-container hosts before configuring collections.
+
+With **Download Missing Workshop Items**
 enabled, any configured item that isn't on disk yet, which is common for items that only come
-from a collection, is downloaded through SteamCMD using AMP's saved Steam login.
+from a collection, is downloaded through SteamCMD using AMP's saved Steam login. Existing
+item directories without usable `.pak` files or root `_metadata` are also retried once.
+
+**Workshop Download Timeout** bounds each automatic download to 900 seconds (15 minutes) by
+default. Increase it for large mods or slow connections. SteamCMD runs without password
+prompts or inherited input; its output is shown in the console. On Windows the helper also
+prints a status message every 30 seconds while waiting. A timeout terminates the download's
+process tree, records the failure, and stops synchronization. Linux automatic downloads use
+GNU `timeout` from `coreutils`, included in the container package list.
 
 The helper reuses a single identity from SteamCMD's cache. If there is no cached identity or
 more than one account, set **Workshop Steam Username** to the account you already authenticated
 through AMP. This setting contains only the account name; passwords and cached tokens are
 never copied into the mod settings or report.
+
+“Missing” means the item has no usable files in the local download locations; it does not
+mean that the public Workshop page was removed. The helper also checks the SteamCMD
+executable's own `steamapps/workshop/content/211820/` library. If synchronization stops at
+**Downloading locally missing Workshop item**, check the SteamCMD output for login or download
+errors, authenticate through AMP again when required, and rerun Update. A successful exit
+without usable local assets also fails synchronization rather than starting without the mod.
 
 #### Local mods
 
@@ -147,11 +168,21 @@ resolved collections, which local mods were enabled or disabled, the final load 
 missing, invalid or unrecognized entries in your settings, along with duplicate names and
 dependency notes read from unpacked local mods.
 
+Filesystem failures while staging are recorded under **STAGING FAILURES** and stop Update or
+pre-start with a nonzero result. Fix the reported filesystem problem and rerun Update before
+starting. Automatic download failures are listed under **WORKSHOP DOWNLOAD FAILURES** and also
+stop synchronization. Missing sources when automatic downloads are disabled, or unresolved
+collections, remain warnings; a failed collection uses its last cached membership when available.
+
 ## Development checks
 
 Run `python -m unittest discover -s tests -p "test_*.py" -v`. On Windows, this exercises
 PowerShell 5.1 and Git Bash; on Linux it exercises native Bash. The suite uses disposable
 instance trees and a local SteamCMD double, without contacting Steam or starting a game.
+Download tests use real subprocesses to check output, closed stdin, deadlines and descendant
+cleanup. Linux/Git Bash download tests require GNU `timeout` from `coreutils`.
+Collection regressions require `jq` on PATH, including when using Git Bash on Windows, and
+replace HTTP requests with local fixtures while running the real JSON parser.
 Linux archive extraction requires `lzip` (automatically included for AMP containers); install
 the same package on non-container hosts. That regression is skipped when `lzip` is unavailable.
 The existing parser tests also run with
@@ -159,7 +190,8 @@ The existing parser tests also run with
 
 After editing either helper or `openstarbound_server.config`, run
 `python scripts/sync_embedded_helpers.py` to regenerate the installation payloads. Tests verify
-that the embedded bytes match their standalone sources.
+that the embedded bytes match their standalone sources after decoding. The Windows helper
+payload is gzip-compressed to fit the Windows command-line limit.
 
 ## License
 

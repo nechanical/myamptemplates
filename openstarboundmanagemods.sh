@@ -19,7 +19,7 @@ STEAM_APP_ID="211820"
 PRESTART=false
 [[ "${1:-}" == "--prestart" ]] && PRESTART=true
 
-mkdir -p "$MOD_DIR" "$STORAGE_DIR"
+mkdir -p "$MOD_DIR" "$STORAGE_DIR" || exit 1
 
 kvp_value() {
   local key="$1" file="$2"
@@ -127,6 +127,11 @@ readarray -t disabled_local_names < <(
 
 managed_enabled="$(bool_value "$(kvp_value 'ManagedModsEnabled' "$MOD_CFG")" true)"
 download_missing="$(bool_value "$(kvp_value 'DownloadMissingWorkshopItems' "$MOD_CFG")" true)"
+download_timeout=900
+timeout_value="$(trim "$(kvp_value 'WorkshopDownloadTimeoutSeconds' "$MOD_CFG")")"
+if [[ "$timeout_value" =~ ^[0-9]{1,5}$ ]] && (( 10#$timeout_value >= 1 && 10#$timeout_value <= 86400 )); then
+  download_timeout=$((10#$timeout_value))
+fi
 prune_managed="$(bool_value "$(kvp_value 'PruneManagedMods' "$MOD_CFG")" true)"
 auto_enable_local="$(bool_value "$(kvp_value 'AutoEnableLocalMods' "$MOD_CFG")" true)"
 local_rel="$(safe_local_dir "$(kvp_value 'LocalModsDirectory' "$MOD_CFG")")"
@@ -152,51 +157,66 @@ mkdir -p "$LOCAL_DIR" || exit 1
 declare -a collection_item_ids=()
 declare -a collection_errors=()
 
-resolve_collection() {
-  local cid="$1"
-  local cache="$STORAGE_DIR/amp_collection_${cid}.txt"
-  local response="" resolved=""
+if (( ${#collection_ids[@]} > 0 )) && ! command -v jq >/dev/null 2>&1; then
+  warn 'jq is required to resolve Workshop collections. Install jq, then rerun Update.'
+  exit 1
+fi
 
+# Keep state in this shell; process-substitution mutations would lose diagnostics.
+# Each bounded batch shares one request and timeout. Parse records by collection ID,
+# never response order or a global grep of publishedfileid fields.
+for (( offset=0; offset<${#collection_ids[@]}; offset+=50 )); do
+  batch=("${collection_ids[@]:offset:50}")
+  curl_args=(-fsS --connect-timeout 10 --max-time 30 -X POST -d "collectioncount=${#batch[@]}")
+  for i in "${!batch[@]}"; do
+    curl_args+=(--data-urlencode "publishedfileids[$i]=${batch[$i]}")
+  done
+  response=""
   if command -v curl >/dev/null 2>&1; then
-    response="$(curl -fsS --connect-timeout 10 --max-time 30 \
-      -X POST \
-      -d 'collectioncount=1' \
-      --data-urlencode "publishedfileids[0]=$cid" \
-      'https://api.steampowered.com/ISteamRemoteStorage/GetCollectionDetails/v1/' 2>/dev/null || true)"
-
-    if [[ -n "$response" ]]; then
-      resolved="$(
-        printf '%s' "$response" |
-          grep -oE '"publishedfileid"[[:space:]]*:[[:space:]]*"[0-9]+"' |
-          grep -oE '[0-9]+' |
-          awk -v collection="$cid" '$0 != collection' |
-          unique_lines
-      )"
+    response="$(curl "${curl_args[@]}" 'https://api.steampowered.com/ISteamRemoteStorage/GetCollectionDetails/v1/' 2>/dev/null || true)"
+  fi
+  declare -A batch_status=() batch_members=()
+  if [[ -n "$response" ]] && parsed="$(printf '%s' "$response" | jq -r '
+      def valid_id: if type == "string" then test("^[0-9]+$") else false end;
+      def valid_children: if type == "array" then
+        all(.[]; if type == "object" then (.publishedfileid | valid_id) else false end)
+        else false end;
+      if (.response.collectiondetails | type) != "array" then error("Missing collection details")
+      else .response.collectiondetails[] | select(type == "object") |
+        select(.publishedfileid | valid_id) | .publishedfileid as $cid |
+        if .result == 1 and (.children | valid_children)
+        then [$cid, "ok", ([.children[].publishedfileid | select(. != $cid)] | unique | join(","))]
+        else [$cid, "invalid", ""] end | @tsv
+      end' 2>/dev/null)"; then
+    parsed="${parsed//$'\r'/}"
+    while IFS=$'\t' read -r cid status members; do
+      [[ "$cid" =~ ^[0-9]+$ ]] || continue
+      if [[ -n "${batch_status[$cid]:-}" ]]; then
+        batch_status["$cid"]=invalid
+      else
+        batch_status["$cid"]="$status"
+        batch_members["$cid"]="$members"
+      fi
+    done <<< "$parsed"
+  fi
+  for cid in "${batch[@]}"; do
+    cache="$STORAGE_DIR/amp_collection_${cid}.txt"
+    ids=()
+    if [[ "${batch_status[$cid]:-}" == ok ]]; then
+      IFS=',' read -r -a ids <<< "${batch_members[$cid]}"
+      # An empty file is an authoritative, cached empty collection.
+      if ! { if (( ${#ids[@]} > 0 )); then printf '%s\n' "${ids[@]}"; fi; } > "$cache"; then
+        warn "Could not cache collection $cid."
+      fi
+    elif [[ -f "$cache" ]]; then
+      warn "Could not refresh collection $cid; using cached membership."
+      mapfile -t ids < <(tr -d '\r' < "$cache" | grep -E '^[0-9]+$')
+    else
+      collection_errors+=("$cid")
+      warn "Could not resolve collection $cid and no cached membership is available."
     fi
-  else
-    warn "curl is not installed; collection $cid can only use an existing cache."
-  fi
-
-  if [[ -n "$resolved" ]]; then
-    printf '%s\n' "$resolved" > "$cache"
-    printf '%s\n' "$resolved"
-    return 0
-  fi
-
-  if [[ -s "$cache" ]]; then
-    warn "Could not refresh collection $cid; using cached membership."
-    cat "$cache"
-    return 0
-  fi
-
-  collection_errors+=("$cid")
-  return 1
-}
-
-for cid in "${collection_ids[@]}"; do
-  while IFS= read -r id; do
-    [[ "$id" =~ ^[0-9]+$ ]] && collection_item_ids+=("$id")
-  done < <(resolve_collection "$cid")
+    collection_item_ids+=("${ids[@]}")
+  done
 done
 
 readarray -t workshop_ids < <(
@@ -219,8 +239,12 @@ find_item_source() {
     "$HOME/.local/share/Steam/steamapps/workshop/content/$STEAM_APP_ID/$id"
   )
   local p
+  local steamcmd
+  steamcmd="$(find_steamcmd || true)"
+  [[ -n "$steamcmd" ]] && candidates+=("$(dirname "$steamcmd")/steamapps/workshop/content/$STEAM_APP_ID/$id")
   for p in "${candidates[@]}"; do
-    if [[ -d "$p" ]]; then
+    if [[ -d "$p" ]] && { [[ -f "$p/_metadata" ]] ||
+        [[ -n "$(find -L "$p" -maxdepth 3 -type f -iname '*.pak' -print -quit 2>/dev/null)" ]]; }; then
       printf '%s\n' "$p"
       return 0
     fi
@@ -258,13 +282,27 @@ download_item() {
     return 1
   fi
 
-  log "Downloading missing Workshop item $id with AMP's cached Steam login..."
-  if /bin/bash "$steamcmd" +login "$username" +workshop_download_item "$STEAM_APP_ID" "$id" validate +quit; then
-    return 0
+  if ! command -v timeout >/dev/null 2>&1; then
+    warn 'GNU timeout is required for unattended Workshop downloads. Install coreutils, then rerun Update.'
+    return 1
   fi
-
-  warn "SteamCMD could not download Workshop item $id."
-  return 1
+  log "Downloading locally missing Workshop item $id with AMP's cached Steam login (timeout: ${download_timeout}s)..."
+  # timeout owns a process group, so both the wrapper and its descendants are
+  # terminated at the deadline. No inherited input can leave a password prompt open.
+  (cd "$(dirname "$steamcmd")" && exec timeout --signal=TERM --kill-after=5s "${download_timeout}s" \
+    /bin/bash "$steamcmd" +@ShutdownOnFailedCommand 1 +@NoPromptForPassword 1 \
+    +login "$username" +workshop_download_item "$STEAM_APP_ID" "$id" validate +quit) </dev/null &
+  local download_pid=$! status
+  trap 'kill -TERM "$download_pid" 2>/dev/null; wait "$download_pid" 2>/dev/null; exit 1' INT TERM
+  wait "$download_pid"
+  status=$?
+  trap - INT TERM
+  if (( status == 124 || status == 137 )); then
+    warn "Workshop item $id timed out after ${download_timeout}s. Reauthenticate Steam through AMP if required, then rerun Update."
+  elif (( status != 0 )); then
+    warn "SteamCMD failed for Workshop item $id (exit code $status). Check the output above; reauthenticate through AMP if required."
+  fi
+  return "$status"
 }
 
 workshop_steam_username() {
@@ -444,27 +482,42 @@ unset IFS
 
 stage_file() {
   local source="$1" target="$2"
-  rm -f "$target"
+  rm -f -- "$target" || return 1
   if ! ln "$source" "$target" 2>/dev/null; then
     if ! ln -s "$source" "$target" 2>/dev/null; then
-      cp -f "$source" "$target"
+      cp -f -- "$source" "$target" || return 1
     fi
   fi
+  [[ -f "$target" ]]
 }
 
 stage_directory() {
   local source="$1" target="$2"
-  rm -rf "$target"
+  rm -rf -- "$target" || return 1
   if ! ln -s "$source" "$target" 2>/dev/null; then
-    cp -a "$source" "$target"
+    cp -a -- "$source" "$target" || return 1
   fi
+  [[ -d "$target" ]]
 }
 
 declare -a staged_keys=()
 declare -a missing_keys=()
+declare -a staging_failures=()
+declare -a download_failures=()
 index=0
 
+record_staging_result() {
+  if [[ "$2" == true ]]; then
+    staged_keys+=("$1")
+  else
+    staging_failures+=("$1")
+    missing_keys+=("$1")
+    warn "Could not stage $1. See the filesystem error above."
+  fi
+}
+
 for key in "${ordered_keys[@]}"; do
+  stage_ok=true
   index=$((index + 1))
   kind="${key_kind[$key]}"
   value="${key_value[$key]}"
@@ -472,9 +525,12 @@ for key in "${ordered_keys[@]}"; do
 
   if [[ "$kind" == "workshop" ]]; then
     src="$(find_item_source "$value" || true)"
-    if [[ -z "$src" ]]; then
-      download_item "$value" || true
-      src="$(find_item_source "$value" || true)"
+    if [[ -z "$src" && "$download_missing" == true ]]; then
+      if download_item "$value"; then src="$(find_item_source "$value" || true)"; fi
+      if [[ -z "$src" ]]; then
+        download_failures+=("$key")
+        warn "Workshop download $value did not produce usable local assets. See SteamCMD output above and rerun Update after resolving the failure."
+      fi
     fi
     if [[ -z "$src" ]]; then
       missing_keys+=("$key")
@@ -492,17 +548,17 @@ for key in "${ordered_keys[@]}"; do
         else
           target="$(printf '%s/amp_%04d_ws_%s_%02d.pak' "$MOD_DIR" "$index" "$value" "$n")"
         fi
-        stage_file "$pak" "$target"
+        stage_file "$pak" "$target" || stage_ok=false
       done
-      staged_keys+=("$key")
     elif [[ -f "$src/_metadata" ]]; then
       target="$(printf '%s/amp_%04d_ws_%s' "$MOD_DIR" "$index" "$value")"
-      stage_directory "$src" "$target"
-      staged_keys+=("$key")
+      stage_directory "$src" "$target" || stage_ok=false
     else
       missing_keys+=("$key")
       warn "Workshop item $value has no .pak or root _metadata."
+      continue
     fi
+    record_staging_result "$key" "$stage_ok"
     continue
   fi
 
@@ -518,29 +574,28 @@ for key in "${ordered_keys[@]}"; do
   case "$local_kind" in
     pak)
       target="$(printf '%s/amp_%04d_local_%s.pak' "$MOD_DIR" "$index" "${safe%.pak}")"
-      stage_file "$src" "$target"
-      staged_keys+=("$key")
+      stage_file "$src" "$target" || stage_ok=false
       ;;
     directory)
       target="$(printf '%s/amp_%04d_local_%s' "$MOD_DIR" "$index" "$safe")"
-      stage_directory "$src" "$target"
-      staged_keys+=("$key")
+      stage_directory "$src" "$target" || stage_ok=false
       ;;
     pakbundle)
       mapfile -t bundle_paks < <(find "$src" -maxdepth 2 -type f -iname '*.pak' -print 2>/dev/null | sort)
       if (( ${#bundle_paks[@]} == 0 )); then
         missing_keys+=("$key")
+        continue
       else
         n=0
         for pak in "${bundle_paks[@]}"; do
           n=$((n + 1))
           target="$(printf '%s/amp_%04d_local_%s_%02d.pak' "$MOD_DIR" "$index" "$safe" "$n")"
-          stage_file "$pak" "$target"
+          stage_file "$pak" "$target" || stage_ok=false
         done
-        staged_keys+=("$key")
       fi
       ;;
   esac
+  record_staging_result "$key" "$stage_ok"
 done
 
 # ----- Lightweight metadata validation for unpacked local mods -----
@@ -646,6 +701,12 @@ done
   printf '  %s\n' "${missing_keys[@]:-}"
   printf '  local:%s\n' "${missing_local_names[@]:-}"
   echo
+  echo "STAGING FAILURES"
+  printf '  %s\n' "${staging_failures[@]:-}"
+  echo
+  echo "WORKSHOP DOWNLOAD FAILURES"
+  printf '  %s\n' "${download_failures[@]:-}"
+  echo
   echo "UNMANAGED EXISTING server/mods ENTRIES"
   printf '  %s\n' "${unmanaged_existing[@]:-}"
   echo
@@ -667,11 +728,12 @@ done
   echo "LOCAL MOD FORMAT"
   echo "  Put .pak files, unpacked mod directories containing _metadata, or release"
   echo "  directories containing .pak files into the local source directory."
-} > "$REPORT"
+} > "$REPORT" || exit 1
 
 log "Managed ${#staged_keys[@]} source(s): ${#workshop_ids[@]} Workshop candidate(s), ${#enabled_local_names[@]} enabled local source(s)."
 log "Report: $REPORT"
-if (( ${#missing_keys[@]} + ${#missing_local_names[@]} + ${#unknown_preference[@]} > 0 )); then
+if (( ${#missing_keys[@]} + ${#missing_local_names[@]} + ${#unknown_preference[@]} + ${#collection_errors[@]} > 0 )); then
   warn "One or more configured mod sources/preferences need attention. See the report."
 fi
+(( ${#staging_failures[@]} + ${#download_failures[@]} == 0 )) || exit 1
 exit 0
