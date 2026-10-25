@@ -7,8 +7,8 @@ replacing them.
   local resources, mounted Source content, and expanded networking, performance and logging
   settings.
 - **[OpenStarbound Enhanced](#openstarbound-enhanced)** adds more server and gameplay settings,
-  plus a mod manager that loads Steam Workshop items, Workshop collections and local mods in a
-  single order.
+  plus a mod manager for Steam Workshop items, collections and local mods, with metadata
+  load-order diagnostics.
 
 ## Installation
 
@@ -52,7 +52,8 @@ server accounts (`serverUsers`) aren't available there, so edit them directly in
 Mod options live under **Configuration -> OpenStarbound Mods**, and **Enable Unified Mod
 Manager** turns the whole system on or off. The mod manager runs at the end of every Update and
 again just before the server starts, staging each enabled mod into
-`openstarbound/server/mods/` with an `amp_` prefix that sets its load order.
+`openstarbound/server/mods/` with an `amp_` prefix that makes the filename staging sequence
+deterministic. OpenStarbound determines the engine load order from mod metadata.
 
 #### Workshop mods
 
@@ -124,10 +125,32 @@ deletes its source.
 inside the server folder with no `..`. It must not overlap `server/mods/` or an ancestor of
 that directory. On Windows, source paths through junctions or symbolic links are rejected.
 
-#### Load order
+#### Staging preference and engine load order
 
-**Mod Load Order** sets one order across Workshop and local mods, with one entry per
-line.
+**Mod Staging Preference** automatically fills with configured Workshop items (including
+resolved collection members) and enabled local mods on every Update and Start. Reopen or
+refresh the Configuration page after synchronization to see discoveries. Use AMP's native
+move-up/down controls to arrange the entries; manual typing is optional.
+
+The helper preserves saved positions and appends newly discovered sources. It does not enable
+cached Workshop items that are no longer configured, or local mods excluded by your settings.
+Saved entries for unavailable or disabled sources remain in the list so their positions survive
+a temporary outage or a later re-enable. Inactive entries are ignored while staging and appear
+under **UNKNOWN PREFERENCE ENTRIES** in the report.
+
+Removing a row does not disable its source: enabled sources omitted from the list append on the
+next sync. Remove Workshop items from their source settings, or use **Disabled Local Mods**, to
+turn them off. Clearing the list resets it to the discovery sequence on the next sync.
+
+The native AMP list is backed by `openstarbound/server/storage/amp_mods_order.txt`, with one
+`ws:<id>` or `local:<name>` entry per line. The first sync imports the former `UnifiedModPreference`
+(or older `ModLoadOrder`) value if this file does not exist. Once the file exists, it is
+authoritative, including when empty; stale legacy settings cannot restore an old order. Existing
+entries are normalized and deduplicated. Updates use a temporary file and stop before pruning
+if the saved list changed during discovery or cannot be written.
+
+The list arranges staging filenames. It does not override a named mod's metadata order. For
+example:
 
 ```text
 local:MyCoreFramework.pak
@@ -138,7 +161,7 @@ MyBalancePatch
 ```
 
 A bare number or `ws:<id>` refers to a Workshop item, while `local:<name>` or any other name
-refers to a local mod. Enabled mods you leave out are appended afterward, Workshop items in ID
+refers to a local mod. Newly discovered or omitted enabled sources append afterward, Workshop items in ID
 order and then local mods alphabetically. The list above is staged as follows.
 
 ```text
@@ -150,9 +173,39 @@ server/mods/
 └── amp_0005_local_MyBalancePatch/
 ```
 
-OpenStarbound still applies each mod's own `priority`, `requires` and `includes` metadata on top
-of this order. The mod manager never edits mod files, since doing so would change asset digests
-and break client compatibility.
+OpenStarbound first selects one source per metadata `name`: higher `priority` wins, and the
+last scanned source wins when priorities are equal. It then sorts sources by increasing
+`priority`, breaking ties by metadata `name` (or source path for an unnamed mod), and visits
+`includes` and `requires` dependencies before each consumer. Dependency names are case sensitive.
+An absent `includes` provider is optional; an absent `requires` provider prevents normal startup.
+Consequently, changing an `amp_` filename usually cannot reorder named mods. The manager reads
+metadata without rewriting mod files or changing their asset digests.
+
+Each sync predicts that engine order for the template's standard `assets/` then `mods/` scan.
+It reads SBAsset6 metadata directly from packed archives, including Workshop downloads, and
+reads unpacked sources, base assets and unmanaged entries in `server/mods/`. Packed reads are
+bounded to a 1 MiB metadata prefix; assets are not extracted. Custom boot configurations and
+additional asset sources are outside this prediction.
+
+The report at `openstarbound/server/storage/amp_mods_report.txt` adds these sections:
+
+- **ENGINE LOAD ORDER STATUS** distinguishes a complete metadata prediction, incomplete
+  metadata, and an invalid dependency graph.
+- **PREDICTED ENGINE LOAD ORDER** lists the selected sources with priorities and dependency
+  metadata. A cycle suppresses the order rather than publishing an invalid sequence.
+- **PREFERENCE/ENGINE ORDER DIFFERENCES** identifies managed filenames whose engine position
+  differs from their staging position.
+- **DUPLICATE METADATA NAMES** shows which source wins and which is skipped.
+- **DEPENDENCY PROBLEMS** identifies missing required names and dependency cycles.
+- **SOURCE METADATA ISSUES** identifies unreadable, unsupported or malformed metadata. With
+  unreadable sources, the displayed sequence covers readable metadata only; unknown providers
+  can change selection and order.
+
+These diagnostics are advisory and do not test JSON patches, duplicate item IDs, or gameplay
+compatibility. A complete metadata prediction does not certify that the mods work together.
+Linux diagnostics require `jq`, which is already included in the template's container package
+list. If diagnostics are unavailable, synchronization records that limitation and continues.
+Run Update after refreshing an existing instance to install the diagnostics helper.
 
 #### Mods already in server/mods
 
@@ -169,9 +222,8 @@ unprefixed mods in `server/mods/` and AMP's Workshop downloads are never deleted
 #### Troubleshooting
 
 Each sync writes a report to `openstarbound/server/storage/amp_mods_report.txt`. It shows the
-resolved collections, which local mods were enabled or disabled, the final load order, and any
-missing, invalid or unrecognized entries in your settings, along with duplicate names and
-dependency notes read from unpacked local mods.
+resolved collections, enabled and disabled local mods, the staging sequence, engine-order
+diagnostics, and missing, invalid or unrecognized entries in your settings.
 
 Filesystem failures while staging are recorded under **STAGING FAILURES** and stop Update or
 pre-start with a nonzero result. Fix the reported filesystem problem and rerun Update before
@@ -195,7 +247,7 @@ the same package on non-container hosts. That regression is skipped when `lzip` 
 The existing parser tests also run with
 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/openstarboundmanagemods.Tests.ps1`.
 
-After editing either helper or `openstarbound_server.config`, run
+After editing a mod manager/diagnostics helper or `openstarbound_server.config`, run
 `python scripts/sync_embedded_helpers.py` to regenerate the installation payloads. Tests verify
 that the embedded bytes match their standalone sources after decoding. The Windows helper
 payload is gzip-compressed to fit the Windows command-line limit.

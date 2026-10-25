@@ -642,18 +642,18 @@
         "Special": "array:text"
     },
     {
-        "DisplayName": "Mod Load Order",
+        "DisplayName": "Mod Staging Preference",
         "Category": "OpenStarbound Mods:extension",
         "Subcategory": "Sources & Ordering:extension",
-        "Description": "Preferred managed staging order across Workshop and local mods. Use ws:123456789 or local:MyMod.pak. Bare numeric values are Workshop IDs; other bare values are local names. Unlisted managed sources are appended automatically.",
+        "Description": "Automatically populated on Update and Start from configured Workshop items/collections and enabled local mods. Existing positions are preserved and new sources append. Reorder entries here; removing an entry does not disable its source. OpenStarbound metadata still determines engine order; this list does not override dependencies. See storage/amp_mods_report.txt for diagnostics.",
         "Keywords": "mods,load,order,priority,workshop,local",
         "FieldName": "ampUnifiedModPreference",
         "InputType": "list",
-        "ParamFieldName": "$.ampUnifiedModPreference",
-        "DefaultValue": "[]",
+        "ParamFieldName": "ampUnifiedModPreference",
+        "DefaultValue": "",
         "ExcludeFromImport": true,
         "EnumValues": {},
-        "Special": "array:text"
+        "Special": "listfile:./openstarbound/server/storage/amp_mods_order.txt"
     },
     {
         "DisplayName": "Download Missing Workshop Items",

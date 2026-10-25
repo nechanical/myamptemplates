@@ -15,6 +15,7 @@ $StorageDir = Join-Path $BaseDir "storage"
 $ModCfg = Join-Path $BaseDir "amp_openstarbound_mods.cfg"
 $AmpSteamCfg = Join-Path $InstanceDir "steamcmdplugin.kvp"
 $Report = Join-Path $StorageDir "amp_mods_report.txt"
+$OrderFile = Join-Path $StorageDir "amp_mods_order.txt"
 $SteamAppId = "211820"
 
 New-Item -ItemType Directory -Force -Path $ModDir -ErrorAction Stop | Out-Null
@@ -129,6 +130,26 @@ if (-not $ManagedEnabled) {
 
 Assert-SafeLocalDirectory
 New-Item -ItemType Directory -Force -Path $LocalDir | Out-Null
+
+# AMP's listfile control reads/writes this file directly. Import the old setting
+# only when no file exists; an empty file is an intentional reset to discovery order.
+function Assert-PlainOrderFile {
+    $entry = Get-Item -LiteralPath $OrderFile -Force -ErrorAction SilentlyContinue
+    if ($entry -and ($entry.PSIsContainer -or ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint))) {
+        throw 'Mod Staging Preference must be a regular file, not a directory or link.'
+    }
+}
+function Read-OrderText {
+    try { return [IO.File]::ReadAllText($OrderFile, [Text.Encoding]::UTF8) }
+    catch { throw "Could not read Mod Staging Preference: $($_.Exception.Message)" }
+}
+Assert-PlainOrderFile
+$OrderFileExisted = Test-Path -LiteralPath $OrderFile -PathType Leaf
+$OrderFileBefore = $null
+if ($OrderFileExisted) {
+    $OrderFileBefore = Read-OrderText
+    $PreferenceEntries = @($OrderFileBefore -split "\r?\n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+}
 
 $CollectionItemIds = New-Object System.Collections.Generic.List[string]
 $CollectionErrors = New-Object System.Collections.Generic.List[string]
@@ -481,10 +502,18 @@ foreach ($name in $EnabledLocalNames) { $Available["local:$name"] = @{ Kind = "l
 
 function Normalize-Preference([string]$Raw) {
     $Raw = $Raw.Trim()
-    if ($Raw -match '^(?i:ws|workshop):\s*(\d+)$') { return "ws:$($Matches[1])" }
-    if ($Raw -match '^\d+$') { return "ws:$Raw" }
-    if ($Raw -match '^(?i:local):\s*(.+)$') { return "local:$($Matches[1].Trim())" }
-    return "local:$Raw"
+    if ($Raw -match '^(?i:ws|workshop):\s*(\d+)$') { $key = "ws:$($Matches[1])" }
+    elseif ($Raw -match '^\d+$') { $key = "ws:$Raw" }
+    elseif ($Raw -match '^(?i:local):\s*(.+)$') { $key = "local:$($Matches[1].Trim())" }
+    else { $key = "local:$Raw" }
+    # Windows accepts case-insensitive source references, but persist the actual
+    # discovered spelling so aliases cannot stage the same local mod twice.
+    if ($Available.ContainsKey($key)) {
+        $info = $Available[$key]
+        if ($info.Kind -eq 'workshop') { return "ws:$($info.Value)" }
+        return "local:$($info.Value)"
+    }
+    return $key
 }
 
 $OrderedKeys = New-Object System.Collections.Generic.List[string]
@@ -504,6 +533,44 @@ foreach ($id in $WorkshopIds) {
 foreach ($name in $EnabledLocalNames) {
     $key = "local:$name"
     if (-not $OrderedKeys.Contains($key)) { $OrderedKeys.Add($key) }
+}
+
+# Preserve saved positions (including temporarily unavailable entries), then append
+# newly discovered configured Workshop and enabled local sources. Do this before
+# pruning, and stop rather than overwrite edits made while discovery was running.
+$SavedOrderKeys = New-Object System.Collections.Generic.List[string]
+foreach ($raw in $PreferenceEntries) {
+    $key = Normalize-Preference $raw
+    if (-not $SavedOrderKeys.Contains($key)) { $SavedOrderKeys.Add($key) }
+}
+foreach ($key in $OrderedKeys) {
+    if (-not $SavedOrderKeys.Contains($key)) { $SavedOrderKeys.Add($key) }
+}
+foreach ($key in $SavedOrderKeys) {
+    if ($key.Contains("`r") -or $key.Contains("`n")) { throw 'Mod Staging Preference entries must fit on one line.' }
+}
+$orderText = ($SavedOrderKeys -join "`n")
+if ($SavedOrderKeys.Count) { $orderText += "`n" }
+Assert-PlainOrderFile
+$existsNow = Test-Path -LiteralPath $OrderFile -PathType Leaf
+if ($existsNow -ne $OrderFileExisted -or
+    ($existsNow -and (Read-OrderText) -cne $OrderFileBefore)) {
+    throw 'Mod Staging Preference changed during discovery. Rerun Update; the newer edits were preserved.'
+}
+if (-not $OrderFileExisted -or $orderText -cne $OrderFileBefore) {
+    $temporaryOrder = Join-Path $StorageDir ('.amp-order-' + [guid]::NewGuid().ToString('N') + '.tmp')
+    $writeErrorPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Stop'
+        [IO.File]::WriteAllText($temporaryOrder, $orderText, [Text.UTF8Encoding]::new($false))
+        if ($OrderFileExisted) { [IO.File]::Replace($temporaryOrder, $OrderFile, [System.Management.Automation.Language.NullString]::Value) }
+        else { [IO.File]::Move($temporaryOrder, $OrderFile) }
+    } catch {
+        throw "Could not save Mod Staging Preference: $($_.Exception.Message)"
+    } finally {
+        $ErrorActionPreference = $writeErrorPreference
+        if (Test-Path -LiteralPath $temporaryOrder) { Remove-Item -LiteralPath $temporaryOrder -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 # Always reconcile this helper's generated names, including disabled/renumbered
@@ -633,45 +700,6 @@ foreach ($key in $OrderedKeys) {
     }
 }
 
-# Metadata validation for unpacked local mods. Packed mods are not automatically unpacked.
-$MetadataOwners = @{}
-$DuplicateMetadataNames = New-Object System.Collections.Generic.List[string]
-$MetadataNotes = New-Object System.Collections.Generic.List[string]
-
-foreach ($name in $EnabledLocalNames) {
-    $info = $LocalSources[$name]
-    if ($info.Kind -ne "directory") { continue }
-    $metaPath = Join-Path $info.Path "_metadata"
-    try {
-        $meta = Get-Content -LiteralPath $metaPath -Raw | ConvertFrom-Json
-        $metaName = if ($meta.name) { [string]$meta.name } else { $name }
-        if ($MetadataOwners.ContainsKey($metaName)) {
-            $DuplicateMetadataNames.Add("$metaName :: $($MetadataOwners[$metaName]) | $name")
-        } else {
-            $MetadataOwners[$metaName] = $name
-        }
-    } catch {
-        $MetadataNotes.Add("$name :: could not parse _metadata: $($_.Exception.Message)")
-    }
-}
-
-foreach ($name in $EnabledLocalNames) {
-    $info = $LocalSources[$name]
-    if ($info.Kind -ne "directory") { continue }
-    $metaPath = Join-Path $info.Path "_metadata"
-    try {
-        $meta = Get-Content -LiteralPath $metaPath -Raw | ConvertFrom-Json
-        $metaName = if ($meta.name) { [string]$meta.name } else { $name }
-        $priority = if ($null -ne $meta.priority) { [string]$meta.priority } else { "0" }
-        $MetadataNotes.Add("$name :: name=$metaName priority=$priority")
-        foreach ($req in @($meta.requires)) {
-            if ($req -and $req -ne "base" -and -not $MetadataOwners.ContainsKey([string]$req)) {
-                $MetadataNotes.Add("$name :: requires '$req' (not found among readable unpacked local metadata; it may be supplied by a packed/Workshop mod)")
-            }
-        }
-    } catch {}
-}
-
 $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add("OpenStarbound AMP unified mod report")
 $lines.Add("Generated: $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))")
@@ -680,6 +708,9 @@ $lines.Add("")
 $lines.Add("LOCAL MOD SOURCE DIRECTORY")
 $lines.Add("  $LocalDir")
 $lines.Add("")
+$lines.Add('MOD STAGING PREFERENCE FILE')
+$lines.Add("  $OrderFile")
+$lines.Add('')
 $sections = @(
     @("NATIVE AMP WORKSHOP IDS", $NativeIds),
     @("WORKSHOP COLLECTION IDS", $CollectionIds),
@@ -696,8 +727,6 @@ $sections = @(
     @("STAGING FAILURES", @($StagingFailures)),
     @("WORKSHOP DOWNLOAD FAILURES", @($DownloadFailures)),
     @("UNMANAGED EXISTING server/mods ENTRIES", $UnmanagedExisting),
-    @("DUPLICATE READABLE LOCAL METADATA NAMES", @($DuplicateMetadataNames)),
-    @("READABLE LOCAL METADATA NOTES", @($MetadataNotes)),
     @("COLLECTIONS THAT COULD NOT BE RESOLVED", @($CollectionErrors))
 )
 foreach ($section in $sections) {
@@ -716,8 +745,16 @@ $lines.Add("  Put .pak files, unpacked mod directories containing _metadata, or 
 $lines.Add("  directories containing .pak files into the local source directory.")
 
 Set-Content -LiteralPath $Report -Value $lines -Encoding UTF8 -ErrorAction Stop
+$diagnostics = Join-Path $InstanceDir 'openstarboundmoddiagnostics.ps1'
+if (Test-Path -LiteralPath $diagnostics -PathType Leaf) {
+    & $diagnostics -BaseDir $BaseDir -ReportPath $Report
+} else {
+    Add-Content -LiteralPath $Report -Value "`nENGINE LOAD ORDER STATUS`n  UNAVAILABLE: Run Update to install the load-order diagnostics helper." -Encoding UTF8
+    Write-ModWarning 'Run Update to install the load-order diagnostics helper.'
+}
 Write-ModLog "Managed $($StagedKeys.Count) source(s): $($WorkshopIds.Count) Workshop candidate(s), $($EnabledLocalNames.Count) enabled local source(s)."
 Write-ModLog "Report: $Report"
+Write-ModLog "Mod staging list: $OrderFile ($($SavedOrderKeys.Count) entries; saved positions preserved)."
 if (($MissingKeys.Count + $MissingLocalNames.Count + $UnknownPreference.Count + $CollectionErrors.Count) -gt 0) {
     Write-ModWarning "One or more configured mod sources/preferences need attention. See the report."
 }

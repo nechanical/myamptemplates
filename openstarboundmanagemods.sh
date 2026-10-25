@@ -15,6 +15,7 @@ STORAGE_DIR="$BASE_DIR/storage"
 MOD_CFG="$BASE_DIR/amp_openstarbound_mods.cfg"
 AMP_STEAM_CFG="$INSTANCE_DIR/steamcmdplugin.kvp"
 REPORT="$STORAGE_DIR/amp_mods_report.txt"
+ORDER_FILE="$STORAGE_DIR/amp_mods_order.txt"
 STEAM_APP_ID="211820"
 PRESTART=false
 [[ "${1:-}" == "--prestart" ]] && PRESTART=true
@@ -153,6 +154,21 @@ if [[ "$source_path" != "$base_path/"* || "$source_path" == "$mods_path" ||
   exit 1
 fi
 mkdir -p "$LOCAL_DIR" || exit 1
+
+# The native AMP listfile control owns this file. Existing empty files reset the
+# preference; only absent files migrate the old config/ModLoadOrder value.
+if [[ -L "$ORDER_FILE" || ( -e "$ORDER_FILE" && ! -f "$ORDER_FILE" ) ]]; then
+  warn 'Mod Staging Preference must be a regular file, not a directory or link.'
+  exit 1
+fi
+order_existed=false
+order_before=""
+if [[ -f "$ORDER_FILE" ]]; then
+  order_existed=true
+  order_before="$(cat -- "$ORDER_FILE")" || exit 1
+  readarray -t preference_entries < "$ORDER_FILE"
+  if (( ${#preference_entries[@]} )); then preference_entries[0]="${preference_entries[0]#$'\xef\xbb\xbf'}"; fi
+fi
 
 declare -a collection_item_ids=()
 declare -a collection_errors=()
@@ -478,6 +494,7 @@ declare -a unknown_preference=()
 declare -A seen_key=()
 
 for raw in "${preference_entries[@]}"; do
+  [[ "$raw" =~ ^[[:space:]]*$ ]] && continue
   key="$(normalize_preference "$raw")"
   if contains_exact "$key" "${available_keys[@]}"; then
     if [[ -z "${seen_key[$key]:-}" ]]; then
@@ -504,6 +521,46 @@ for name in "${enabled_local_names[@]}"; do
     seen_key["$key"]=1
   fi
 done
+
+# Keep remembered entries, even if a mod is temporarily disabled/unavailable.
+# Preferences never enable sources; new configured/enabled sources append once.
+declare -a saved_order_keys=()
+declare -A saved_order_seen=()
+for raw in "${preference_entries[@]}"; do
+  [[ "$raw" =~ ^[[:space:]]*$ ]] && continue
+  key="$(normalize_preference "$raw")"
+  if [[ -z "${saved_order_seen[$key]:-}" ]]; then saved_order_keys+=("$key"); saved_order_seen["$key"]=1; fi
+done
+for key in "${ordered_keys[@]}"; do
+  if [[ -z "${saved_order_seen[$key]:-}" ]]; then saved_order_keys+=("$key"); saved_order_seen["$key"]=1; fi
+done
+for key in "${saved_order_keys[@]}"; do
+  if [[ "$key" == *$'\n'* || "$key" == *$'\r'* ]]; then warn 'Mod Staging Preference entries must fit on one line.'; exit 1; fi
+done
+if [[ -L "$ORDER_FILE" || ( -e "$ORDER_FILE" && ! -f "$ORDER_FILE" ) ]]; then
+  warn 'Mod Staging Preference must be a regular file, not a directory or link.'
+  exit 1
+fi
+exists_now=false
+[[ -f "$ORDER_FILE" ]] && exists_now=true
+order_now=""
+if [[ "$exists_now" == true ]]; then order_now="$(cat -- "$ORDER_FILE")" || exit 1; fi
+if [[ "$exists_now" != "$order_existed" ]] ||
+   [[ "$order_now" != "$order_before" ]]; then
+  warn 'Mod Staging Preference changed during discovery. Rerun Update; the newer edits were preserved.'
+  exit 1
+fi
+temporary_order="$(mktemp "$STORAGE_DIR/.amp-order.XXXXXX")" || exit 1
+if (( ${#saved_order_keys[@]} )) && ! printf '%s\n' "${saved_order_keys[@]}" > "$temporary_order"; then
+  rm -f -- "$temporary_order"
+  exit 1
+fi
+if [[ "$order_existed" == true ]] && cmp -s -- "$temporary_order" "$ORDER_FILE"; then
+  rm -f -- "$temporary_order"
+elif ! mv -f -- "$temporary_order" "$ORDER_FILE"; then
+  rm -f -- "$temporary_order"
+  exit 1
+fi
 
 # ----- Clear only AMP-managed staging entries -----
 
@@ -643,64 +700,6 @@ for key in "${ordered_keys[@]}"; do
   record_staging_result "$key" "$stage_ok"
 done
 
-# ----- Lightweight metadata validation for unpacked local mods -----
-# Packed .pak metadata is intentionally not unpacked on every start.
-
-metadata_field() {
-  local file="$1" field="$2"
-  grep -oE "\"${field}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$file" 2>/dev/null |
-    head -n1 |
-    sed -E "s/.*:[[:space:]]*\"([^\"]*)\".*/\1/"
-}
-
-metadata_array() {
-  local file="$1" field="$2"
-  local block
-  block="$(tr '\n' ' ' < "$file" | grep -oE "\"${field}\"[[:space:]]*:[[:space:]]*\[[^]]*\]" | head -n1 || true)"
-  printf '%s' "$block" | grep -oE '"[^"]+"' | tail -n +2 | tr -d '"' || true
-}
-
-declare -A metadata_owner_by_name=()
-declare -A metadata_path_by_local=()
-declare -a duplicate_metadata_names=()
-declare -a missing_declared_requires=()
-declare -a metadata_notes=()
-
-for name in "${enabled_local_names[@]}"; do
-  [[ "${local_kind_by_name[$name]:-}" == "directory" ]] || continue
-  meta="${local_path_by_name[$name]}/_metadata"
-  [[ -f "$meta" ]] || continue
-
-  modname="$(metadata_field "$meta" name)"
-  [[ -n "$modname" ]] || modname="$name"
-  metadata_path_by_local["$name"]="$meta"
-
-  if [[ -n "${metadata_owner_by_name[$modname]:-}" ]]; then
-    duplicate_metadata_names+=("$modname :: ${metadata_owner_by_name[$modname]} | $name")
-  else
-    metadata_owner_by_name["$modname"]="$name"
-  fi
-done
-
-for name in "${enabled_local_names[@]}"; do
-  meta="${metadata_path_by_local[$name]:-}"
-  [[ -n "$meta" ]] || continue
-  modname="$(metadata_field "$meta" name)"
-  [[ -n "$modname" ]] || modname="$name"
-  priority="$(grep -oE '"priority"[[:space:]]*:[[:space:]]*-?[0-9]+([.][0-9]+)?' "$meta" 2>/dev/null | head -n1 | sed -E 's/.*:[[:space:]]*//' || true)"
-  [[ -n "$priority" ]] && metadata_notes+=("$name :: name=$modname priority=$priority")
-
-  while IFS= read -r req; do
-    [[ -n "$req" ]] || continue
-    # 'base' is supplied by Starbound packed.pak. Packed Workshop/local mods are not
-    # introspected, so only report requirements that are definitely absent from the
-    # readable unpacked local metadata set.
-    if [[ "$req" != "base" && -z "${metadata_owner_by_name[$req]:-}" ]]; then
-      metadata_notes+=("$name :: requires '$req' (not found among readable unpacked local metadata; it may be supplied by a packed/Workshop mod)")
-    fi
-  done < <(metadata_array "$meta" requires)
-done
-
 {
   echo "OpenStarbound AMP unified mod report"
   echo "Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -708,6 +707,9 @@ done
   echo
   echo "LOCAL MOD SOURCE DIRECTORY"
   echo "  $LOCAL_DIR"
+  echo
+  echo "MOD STAGING PREFERENCE FILE"
+  echo "  $ORDER_FILE"
   echo
   echo "NATIVE AMP WORKSHOP IDS"
   printf '  %s\n' "${native_ids[@]:-}"
@@ -755,12 +757,6 @@ done
   echo "UNMANAGED EXISTING server/mods ENTRIES"
   printf '  %s\n' "${unmanaged_existing[@]:-}"
   echo
-  echo "DUPLICATE READABLE LOCAL METADATA NAMES"
-  printf '  %s\n' "${duplicate_metadata_names[@]:-}"
-  echo
-  echo "READABLE LOCAL METADATA NOTES"
-  printf '  %s\n' "${metadata_notes[@]:-}"
-  echo
   echo "COLLECTIONS THAT COULD NOT BE RESOLVED"
   printf '  %s\n' "${collection_errors[@]:-}"
   echo
@@ -775,8 +771,15 @@ done
   echo "  directories containing .pak files into the local source directory."
 } > "$REPORT" || exit 1
 
+if [[ -f "$INSTANCE_DIR/openstarboundmoddiagnostics.sh" ]]; then
+  /bin/bash "$INSTANCE_DIR/openstarboundmoddiagnostics.sh" "$BASE_DIR" "$REPORT"
+else
+  printf '\nENGINE LOAD ORDER STATUS\n  UNAVAILABLE: Run Update to install the load-order diagnostics helper.\n' >> "$REPORT"
+  warn "Run Update to install the load-order diagnostics helper."
+fi
 log "Managed ${#staged_keys[@]} source(s): ${#workshop_ids[@]} Workshop candidate(s), ${#enabled_local_names[@]} enabled local source(s)."
 log "Report: $REPORT"
+log "Mod staging list: $ORDER_FILE (${#saved_order_keys[@]} entries; saved positions preserved)."
 if (( ${#missing_keys[@]} + ${#missing_local_names[@]} + ${#unknown_preference[@]} + ${#collection_errors[@]} > 0 )); then
   warn "One or more configured mod sources/preferences need attention. See the report."
 fi

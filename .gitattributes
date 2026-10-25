@@ -4,3 +4,4 @@
 openstarboundmanagemods.ps1 text eol=lf
 *.sh text eol=lf
 openstarbound_server.config text eol=lf
+openstarboundmoddiagnostics.ps1 text eol=lf

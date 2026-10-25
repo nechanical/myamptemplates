@@ -72,6 +72,30 @@ class TemplateContracts(unittest.TestCase):
                     self.assertLess(len(stage["UpdateSourceArgs"]) + 1024, 32767,
                                     "Embedded installer must fit Windows' command-line limit with path headroom")
 
+    def test_embedded_diagnostics_match_and_install_before_sync(self):
+        stages = read_json("openstarboundupdates.json")
+        for platform, suffix in (("Windows", "ps1"), ("Linux", "sh")):
+            stage = next(s for s in stages if s["UpdateStageName"] == "Install Mod Load Order Diagnostics"
+                         and s["UpdateSourcePlatform"] == platform)
+            self.assertEqual(embedded_bytes(stage),
+                             (REPO / ("openstarboundmoddiagnostics." + suffix)).read_bytes())
+            self.assertFalse(stage["SkipOnFailure"])
+            sync = next(s for s in stages if s["UpdateStageName"] == "Synchronize Unified Mods"
+                        and s["UpdateSourcePlatform"] == platform)
+            self.assertLess(stages.index(stage), stages.index(sync))
+            if platform == "Windows":
+                self.assertLess(len(stage["UpdateSourceArgs"]) + 1024, 32767)
+
+    def test_staging_preference_preserves_existing_setting_contract(self):
+        field = next(v for v in read_json("openstarboundconfig.json") if v["FieldName"] == "ampUnifiedModPreference")
+        self.assertEqual(field["DisplayName"], "Mod Staging Preference")
+        self.assertIn("does not override", field["Description"])
+        mapping = next(v for v in read_json("openstarboundmetaconfig.json") if v["ConfigFile"] == "amp_openstarbound_mods.cfg")
+        self.assertNotIn("UnifiedModPreference", mapping["Subsections"][0]["SettingMappings"])
+        self.assertEqual(field["Special"], "listfile:./openstarbound/server/storage/amp_mods_order.txt")
+        self.assertEqual(field["DefaultValue"], "")
+        self.assertEqual(field["ParamFieldName"], field["FieldName"])
+
     def test_embedded_default_configs_match_exactly(self):
         for stage in read_json("openstarboundupdates.json"):
             if stage["UpdateStageName"] == "Install Default Server Config":
@@ -112,6 +136,8 @@ class HelperBehavior:
         (self.base / "localmods").mkdir(parents=True)
         self.helper = self.instance / ("openstarboundmanagemods." + self.suffix)
         shutil.copyfile(REPO / self.helper.name, self.helper)
+        shutil.copyfile(REPO / ("openstarboundmoddiagnostics." + self.suffix),
+                        self.instance / ("openstarboundmoddiagnostics." + self.suffix))
         self.config = dict(line.split("=", 1) for line in
                            (REPO / "amp_openstarbound_mods.cfg").read_text().splitlines() if line)
         self.config["DownloadMissingWorkshopItems"] = "false"
@@ -155,6 +181,296 @@ class HelperBehavior:
         path = self.base / "localmods" / name
         path.write_text(content or name, encoding="utf-8")
         return path
+
+    @staticmethod
+    def write_metadata_pak(path, metadata):
+        # Minimal genuine SBAsset6 archive; the binary root is a JsonObject,
+        # followed by an empty asset index. Supports all seven JSON variants.
+        def vlq(value):
+            parts = [value & 127]
+            while value >> 7:
+                value >>= 7
+                parts.append((value & 127) | 128)
+            return bytes(reversed(parts))
+        def string(value):
+            data = value.encode("utf-8")
+            return vlq(len(data)) + data
+        def mapping(value):
+            return vlq(len(value)) + b"".join(string(k) + variant(v) for k, v in value.items())
+        def variant(value):
+            if value is None:
+                return b"\x01"
+            if isinstance(value, bool):
+                return b"\x03" + bytes([value])
+            if isinstance(value, float):
+                return b"\x02" + struct.pack(">d", value)
+            if isinstance(value, int):
+                return b"\x04" + vlq(value * 2 if value >= 0 else -value * 2 - 1)
+            if isinstance(value, str):
+                return b"\x05" + string(value)
+            if isinstance(value, list):
+                return b"\x06" + vlq(len(value)) + b"".join(map(variant, value))
+            return b"\x07" + mapping(value)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"SBAsset6" + struct.pack(">Q", 16) + b"INDEX" + mapping(metadata) + vlq(0))
+        return path
+
+    def order_pak(self, name, metadata):
+        return self.write_metadata_pak(self.base / "localmods" / name, metadata)
+
+    def engine_order(self):
+        section = self.report_section("PREDICTED ENGINE LOAD ORDER")
+        return [line.split(" :: ")[1] for line in section.splitlines() if " :: " in line]
+
+    def test_packed_metadata_name_overrides_filename_preference(self):
+        original = self.order_pak("First.pak", {"name": "Zulu"})
+        self.order_pak("Second.pak", {"name": "Alpha"})
+        self.config["UnifiedModPreference"] = '["local:First.pak","local:Second.pak"]'
+        before = original.read_bytes()
+        self.run_helper()
+        self.assertEqual(self.engine_order(), ["mods/amp_0002_local_Second.pak", "mods/amp_0001_local_First.pak"])
+        self.assertIn("staging position 2 -> engine managed position 1", self.report_section("PREFERENCE/ENGINE ORDER DIFFERENCES"))
+        self.assertTrue(self.report_section("ENGINE LOAD ORDER STATUS").startswith("COMPLETE:"))
+        self.assertEqual(original.read_bytes(), before)
+
+    def test_workshop_dependency_overrides_priority_and_includes_is_optional(self):
+        folder = self.workshop_item("123456789")
+        self.write_metadata_pak(folder / "contents.pak", {"name":"Framework", "priority":100})
+        self.order_pak("Consumer.pak", {"name":"Consumer", "priority":-10, "requires":["Framework"], "includes":["NotInstalled"]})
+        self.config["UnifiedModPreference"] = '["local:Consumer.pak","ws:123456789"]'
+        (self.instance / "steamcmdplugin.kvp").write_text('SteamWorkshop.WorkshopItemIDs=["123456789"]')
+        self.run_helper()
+        self.assertEqual(self.engine_order(), ["mods/amp_0002_ws_123456789.pak", "mods/amp_0001_local_Consumer.pak"])
+        self.assertEqual(self.report_section("DEPENDENCY PROBLEMS"), "")
+
+    def test_duplicate_names_select_highest_priority_then_last_scanned(self):
+        self.order_pak("A.pak", {"name":"Same", "priority":5})
+        self.order_pak("B.pak", {"name":"Same", "priority":-2})
+        self.order_pak("C.pak", {"name":"Same", "priority":5})
+        self.run_helper()
+        self.assertEqual(self.engine_order(), ["mods/amp_0003_local_C.pak"])
+        notes = self.report_section("DUPLICATE METADATA NAMES")
+        self.assertIn("selected mods/amp_0003_local_C.pak", notes)
+        self.assertIn("skipped mods/amp_0002_local_B.pak", notes)
+
+    def test_assets_and_unmanaged_sources_satisfy_dependencies(self):
+        self.write_metadata_pak(self.base / "assets" / "packed.pak", {"name":"base"})
+        self.write_metadata_pak(self.base / "mods" / "Manual.pak", {"name":"Manual", "requires":["base"]})
+        self.order_pak("Consumer.pak", {"name":"Consumer", "requires":["Manual"]})
+        self.run_helper()
+        self.assertEqual(self.engine_order(), ["assets/packed.pak", "mods/Manual.pak", "mods/amp_0001_local_Consumer.pak"])
+        self.assertEqual(self.report_section("DEPENDENCY PROBLEMS"), "")
+
+    def test_missing_required_names_are_case_sensitive(self):
+        self.order_pak("A.pak", {"name":"Framework"})
+        self.order_pak("B.pak", {"name":"Consumer", "requires":["framework"]})
+        self.run_helper()
+        self.assertTrue(self.report_section("ENGINE LOAD ORDER STATUS").startswith("INVALID:"))
+        self.assertIn("framework", self.report_section("DEPENDENCY PROBLEMS"))
+
+    def test_dependency_cycle_does_not_publish_a_valid_order(self):
+        self.order_pak("A.pak", {"name":"A", "includes":["B"]})
+        self.order_pak("B.pak", {"name":"B", "requires":["A"]})
+        self.run_helper()
+        self.assertIn("Dependency cycle:", self.report_section("DEPENDENCY PROBLEMS"))
+        self.assertEqual(self.engine_order(), [])
+        self.assertTrue(self.report_section("ENGINE LOAD ORDER STATUS").startswith("INVALID:"))
+
+    def test_unreadable_pak_marks_prediction_incomplete(self):
+        self.pak("Broken.pak", "SBAsset6 invalid index")
+        self.order_pak("Readable.pak", {"name":"Readable", "requires":["Unknown"]})
+        self.run_helper()
+        self.assertTrue(self.report_section("ENGINE LOAD ORDER STATUS").startswith("INCOMPLETE:"))
+        self.assertIn("amp_0001_local_Broken.pak", self.report_section("SOURCE METADATA ISSUES"))
+        self.assertEqual(self.engine_order(), ["mods/amp_0002_local_Readable.pak"])
+
+    def test_metadata_binary_variants_unicode_and_float_priorities(self):
+        self.order_pak("A.pak", {"name":"Quoted \"α\"", "priority":-1.25, "extra":{"null":None,"bool":True,"int":-31,"array":[1.5,"line\nend"]}})
+        self.order_pak("B.pak", {"name":"Before", "priority":-1.5})
+        self.run_helper()
+        self.assertTrue(self.report_section("ENGINE LOAD ORDER STATUS").startswith("COMPLETE:"))
+        self.assertEqual(self.engine_order(), ["mods/amp_0002_local_B.pak", "mods/amp_0001_local_A.pak"])
+        self.assertIn("priority=-1.25", self.report_section("PREDICTED ENGINE LOAD ORDER"))
+
+    def test_invalid_metadata_schema_is_not_silently_defaulted(self):
+        self.order_pak("A.pak", {"name":"A", "includes":"B"})
+        self.order_pak("B.pak", {"name":"B", "priority":"100"})
+        self.run_helper()
+        self.assertEqual(self.engine_order(), [])
+        self.assertTrue(self.report_section("ENGINE LOAD ORDER STATUS").startswith("INCOMPLETE:"))
+
+    def test_unnamed_unpacked_source_and_hidden_entries_follow_engine_scan(self):
+        folder=self.base / "localmods" / "Unnamed"
+        folder.mkdir()
+        (folder / "_metadata").write_text("{}")
+        self.write_metadata_pak(self.base / "mods" / "_hidden.pak", {"name":"Hidden"})
+        self.run_helper()
+        self.assertEqual(self.engine_order(), ["mods/amp_0001_local_Unnamed"])
+        self.assertIn("name=<unnamed>", self.report_section("PREDICTED ENGINE LOAD ORDER"))
+
+    def test_unnamed_path_fallback_precedes_metadata_names(self):
+        self.order_pak("A.pak", {"name":"Alpha"})
+        self.order_pak("Z.pak", {})
+        self.run_helper()
+        self.assertEqual(self.engine_order(), ["mods/amp_0002_local_Z.pak", "mods/amp_0001_local_A.pak"])
+
+    def test_metadata_field_names_are_case_sensitive(self):
+        self.order_pak("A.pak", {"Name":"Ignored", "Priority":100, "Requires":["NotInstalled"]})
+        self.order_pak("B.pak", {"name":"Alpha"})
+        self.run_helper()
+        self.assertTrue(self.report_section("ENGINE LOAD ORDER STATUS").startswith("COMPLETE:"))
+        self.assertIn("name=<unnamed> priority=0", self.report_section("PREDICTED ENGINE LOAD ORDER"))
+        self.assertEqual(self.report_section("DEPENDENCY PROBLEMS"), "")
+
+    def test_priority_comparison_uses_engine_float_precision(self):
+        self.order_pak("A.pak", {"name":"Zulu", "priority":16777216})
+        self.order_pak("B.pak", {"name":"Alpha", "priority":16777217})
+        self.run_helper()
+        self.assertEqual(self.engine_order(), ["mods/amp_0002_local_B.pak", "mods/amp_0001_local_A.pak"])
+
+    def test_unpacked_utf8_dependency_matches_packed_name(self):
+        self.order_pak("Framework.pak", {"name":"Π", "priority":100})
+        folder=self.base / "localmods" / "Consumer"
+        folder.mkdir()
+        (folder / "_metadata").write_text(json.dumps({"name":"Consumer", "requires":["Π"]}, ensure_ascii=False), encoding="utf-8")
+        self.run_helper()
+        self.assertEqual(self.report_section("DEPENDENCY PROBLEMS"), "")
+        self.assertEqual(self.engine_order(), ["mods/amp_0002_local_Framework.pak", "mods/amp_0001_local_Consumer"])
+
+    def test_utf8_order_matches_engine_for_astral_names(self):
+        self.order_pak("A.pak", {"name":"\U0001f600"})
+        self.order_pak("B.pak", {"name":"\uff21"})
+        self.run_helper()
+        self.assertEqual(self.engine_order(), ["mods/amp_0002_local_B.pak", "mods/amp_0001_local_A.pak"])
+
+    def write_order(self, entries):
+        path = self.base / "storage" / "amp_mods_order.txt"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text("".join(entry + "\n" for entry in entries), encoding="utf-8")
+        return path
+
+    def read_order(self):
+        return (self.base / "storage" / "amp_mods_order.txt").read_text(encoding="utf-8-sig").splitlines()
+
+    def test_order_file_populates_workshop_collections_and_local_formats(self):
+        self.workshop_item("123456789")
+        self.workshop_item("123456790")
+        (self.instance / "steamcmdplugin.kvp").write_text('SteamWorkshop.WorkshopItemIDs=["123456789"]')
+        cid = "333333333"
+        self.config["WorkshopCollectionIDs"] = json.dumps([cid])
+        self.mock_collections([self.collection_record(cid, ["123456790", "123456789"])])
+        self.pak("A.pak")
+        self.pak("Disabled.pak")
+        self.config["DisabledLocalMods"] = '["Disabled.pak"]'
+        for name in ["Release/nested", "Unpacked"]:
+            (self.base / "localmods" / name).mkdir(parents=True)
+        (self.base / "localmods/Release/nested/contents.pak").write_text("fixture")
+        (self.base / "localmods/Unpacked/_metadata").write_text("{}")
+        self.run_helper()
+        self.assertEqual(self.read_order(), ["ws:123456789", "ws:123456790", "local:A.pak", "local:Release", "local:Unpacked"])
+        self.assertIn("amp_mods_order.txt", self.report_section("MOD STAGING PREFERENCE FILE"))
+
+    def test_order_file_preserves_positions_and_appends_new_sources_once(self):
+        self.pak("A.pak")
+        self.pak("B.pak")
+        self.run_helper()
+        order = self.write_order(["local:B.pak", "local:A.pak"])
+        self.pak("C.pak")
+        self.workshop_item("123456789")
+        (self.instance / "steamcmdplugin.kvp").write_text('SteamWorkshop.WorkshopItemIDs=["123456789"]')
+        self.run_helper()
+        self.assertEqual(self.read_order(), ["local:B.pak", "local:A.pak", "ws:123456789", "local:C.pak"])
+        self.assertEqual(self.targets(), ["amp_0001_local_B.pak", "amp_0002_local_A.pak", "amp_0003_ws_123456789.pak", "amp_0004_local_C.pak"])
+        before = order.stat().st_mtime_ns
+        self.run_helper()
+        self.assertEqual(order.stat().st_mtime_ns, before)
+        self.assertEqual(len(self.read_order()), 4)
+
+    def test_order_file_migrates_legacy_aliases_once(self):
+        self.pak("A.pak")
+        self.pak("B.pak")
+        self.workshop_item("123456789")
+        (self.instance / "steamcmdplugin.kvp").write_text('SteamWorkshop.WorkshopItemIDs=["123456789"]')
+        self.config["UnifiedModPreference"] = '["B.pak","123456789","local:A.pak","ws:123456789"]'
+        self.run_helper()
+        self.assertEqual(self.read_order(), ["local:B.pak", "ws:123456789", "local:A.pak"])
+        self.config["UnifiedModPreference"] = '["local:A.pak"]'
+        self.run_helper()
+        self.assertEqual(self.read_order(), ["local:B.pak", "ws:123456789", "local:A.pak"])
+
+    def test_order_file_empty_reset_does_not_restore_legacy_order(self):
+        self.pak("A.pak")
+        self.pak("B.pak")
+        self.config["UnifiedModPreference"] = '["local:B.pak","local:A.pak"]'
+        self.write_order([])
+        self.run_helper()
+        self.assertEqual(self.read_order(), ["local:A.pak", "local:B.pak"])
+        self.assertEqual(self.targets(), ["amp_0001_local_A.pak", "amp_0002_local_B.pak"])
+
+    def test_order_file_remembers_inactive_entries_without_enabling_them(self):
+        self.pak("Active.pak")
+        self.pak("Disabled.pak")
+        self.workshop_item("123456789")  # Cached but not configured: must remain inactive.
+        self.config["DisabledLocalMods"] = '["Disabled.pak"]'
+        remembered = ["local:Disabled.pak", "local:Missing.pak", "ws:123456789", "local:Active.pak"]
+        self.write_order(remembered)
+        self.run_helper()
+        self.assertEqual(self.read_order(), remembered)
+        self.assertEqual(self.targets(), ["amp_0001_local_Active.pak"])
+        self.config["DisabledLocalMods"] = "[]"
+        self.run_helper()
+        self.assertEqual(self.targets(), ["amp_0001_local_Disabled.pak", "amp_0002_local_Active.pak"])
+
+    def test_order_file_handles_utf8_bom_crlf_and_blank_rows(self):
+        self.pak("Café.pak")
+        self.pak("B.pak")
+        order = self.write_order([])
+        order.write_bytes(b"\xef\xbb\xbf" + "\r\nlocal:Café.pak\r\n \r\nlocal:B.pak\r\n".encode("utf-8"))
+        self.run_helper()
+        self.assertEqual(self.read_order(), ["local:Café.pak", "local:B.pak"])
+        self.assertEqual(self.report_section("UNKNOWN PREFERENCE ENTRIES"), "")
+
+    def test_order_file_invalid_target_fails_before_pruning(self):
+        self.pak("A.pak")
+        path = self.base / "storage" / "amp_mods_order.txt"
+        path.mkdir(parents=True)
+        mods = self.base / "mods"
+        mods.mkdir()
+        old = mods / "amp_0001_local_Old.pak"
+        old.write_text("preserve")
+        self.run_helper(expect_success=False)
+        self.assertEqual(old.read_text(), "preserve")
+
+    def test_order_file_concurrent_edit_is_preserved_before_pruning(self):
+        self.pak("A.pak")
+        self.pak("B.pak")
+        order = self.write_order(["local:A.pak"])
+        mods = self.base / "mods"
+        mods.mkdir()
+        old = mods / "amp_0001_local_Old.pak"
+        old.write_text("preserve")
+        cid = "333333333"
+        self.config["WorkshopCollectionIDs"] = json.dumps([cid])
+        self.mock_collections([self.collection_record(cid, [])])
+        response = self.instance / "collection-response.json"
+        if self.suffix == "ps1":
+            self.powershell_prelude = ("function Invoke-RestMethod { param($Method,$Uri,$Body,$TimeoutSec,$ErrorAction)\n"
+                "[IO.File]::WriteAllText('" + str(order).replace("'", "''") + "', \"local:B.pak`n\")\n"
+                "Get-Content -LiteralPath '" + str(response).replace("'", "''") + "' -Raw | ConvertFrom-Json\n}")
+        else:
+            curl = self.fixture_bin / "curl"
+            curl.write_text("#!/usr/bin/env bash\nprintf '%s\\n' local:B.pak > " + shlex.quote(self.bash_path(order)) + "\ncat " + shlex.quote(self.bash_path(response)) + "\n")
+            curl.chmod(0o755)
+        result = self.run_helper(expect_success=False)
+        self.assertIn("changed during discovery", result.stdout + result.stderr)
+        self.assertEqual(order.read_text(), "local:B.pak\n")
+        self.assertEqual(old.read_text(), "preserve")
+
+    def test_order_file_is_not_created_when_manager_is_disabled(self):
+        self.pak("A.pak")
+        self.config["ManagedModsEnabled"] = "false"
+        self.run_helper()
+        self.assertFalse((self.base / "storage/amp_mods_order.txt").exists())
 
     def targets(self):
         return sorted(p.name for p in (self.base / "mods").iterdir())
@@ -444,7 +760,7 @@ exec /usr/bin/ln "$@"
         self.pak("B.pak")
         self.config["PruneManagedMods"] = "false"
         self.run_helper()
-        self.config["UnifiedModPreference"] = '["local:B.pak","local:A.pak"]'
+        self.write_order(["local:B.pak", "local:A.pak"])
         self.run_helper()
         self.assertEqual(self.targets(), ["amp_0001_local_B.pak", "amp_0002_local_A.pak"])
         (self.base / "localmods" / "B.pak").unlink()
@@ -739,6 +1055,22 @@ exec /usr/bin/ln "$@"
 class WindowsHelper(HelperBehavior, unittest.TestCase):
     suffix = "ps1"
 
+    def test_order_file_write_failure_stops_before_pruning(self):
+        self.pak("A.pak")
+        self.pak("B.pak")
+        order = self.write_order(["local:A.pak"])
+        mods = self.base / "mods"
+        mods.mkdir()
+        old = mods / "amp_0001_local_Old.pak"
+        old.write_text("preserve")
+        order.chmod(0o444)
+        try:
+            self.run_helper(expect_success=False)
+            self.assertEqual(self.read_order(), ["local:A.pak"])
+            self.assertEqual(old.read_text(), "preserve")
+        finally:
+            order.chmod(0o666)
+
     def install_steamcmd(self):
         # Compile a tiny executable so the complete native-process boundary is tested.
         source = r'''using System; using System.IO; using System.Diagnostics; using System.Threading;
@@ -890,11 +1222,13 @@ class InstallStages(unittest.TestCase):
         # Git Bash truncates long -c strings on this Windows host. Exercise each
         # installer on its native OS; helper behavior still runs in Git Bash too.
         for platform, suffix in ((("Windows", "ps1"),) if WINDOWS else (("Linux", "sh"),)):
-            with self.subTest(platform=platform):
-                result = self.run_stage("Install Unified Mod Helper", platform)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertEqual((self.instance / ("openstarboundmanagemods." + suffix)).read_bytes(),
-                                 (REPO / ("openstarboundmanagemods." + suffix)).read_bytes())
+            for stage, stem in (("Install Unified Mod Helper", "openstarboundmanagemods"),
+                                ("Install Mod Load Order Diagnostics", "openstarboundmoddiagnostics")):
+                with self.subTest(platform=platform, stage=stage):
+                    result = self.run_stage(stage, platform)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual((self.instance / (stem + "." + suffix)).read_bytes(),
+                                     (REPO / (stem + "." + suffix)).read_bytes())
 
     @unittest.skipUnless(WINDOWS, "Windows executable layout")
     def test_windows_release_layout_normalization(self):
